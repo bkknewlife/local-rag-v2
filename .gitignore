@@ -1,0 +1,22 @@
+# Python
+*.pyc
+__pycache__/
+*.egg-info/
+dist/
+build/
+.venv/
+
+# Environment / secrets
+.env
+
+# Heavy data (ChromaDB index, HF cache)
+data/chroma_db/
+data/results/
+
+# IDE
+.cursor/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db

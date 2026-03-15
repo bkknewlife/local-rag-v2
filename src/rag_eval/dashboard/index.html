@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RAG Eval Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  :root {
+    --bg: #0a0c10; --surface: #111318; --surface2: #181b22;
+    --border: #1e2330; --accent: #00e5ff; --accent2: #7c3aed;
+    --accent3: #10b981; --warn: #f59e0b; --danger: #ef4444;
+    --text: #e2e8f0; --muted: #64748b;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:'Segoe UI',system-ui,sans-serif; line-height:1.6; }
+  .container { max-width:1280px; margin:0 auto; padding:0 1.5rem; }
+
+  header { padding:2rem 0 1.5rem; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem; }
+  h1 { font-size:1.5rem; font-weight:700; letter-spacing:-0.02em; }
+  h1 span { color:var(--accent); }
+  .badge { font-size:.65rem; padding:.2rem .6rem; border-radius:2px; font-family:monospace; letter-spacing:.06em; text-transform:uppercase; }
+  .badge-ok { background:rgba(16,185,129,.12); color:var(--accent3); border:1px solid rgba(16,185,129,.3); }
+  .badge-err { background:rgba(239,68,68,.12); color:var(--danger); border:1px solid rgba(239,68,68,.3); }
+  .badge-warn { background:rgba(245,158,11,.12); color:var(--warn); border:1px solid rgba(245,158,11,.3); }
+
+  .status-bar { display:flex; gap:.75rem; flex-wrap:wrap; align-items:center; }
+
+  section { padding:2rem 0; border-bottom:1px solid var(--border); }
+  h2 { font-size:1.15rem; font-weight:600; margin-bottom:1rem; }
+
+  .controls { display:flex; gap:.75rem; flex-wrap:wrap; align-items:center; margin-bottom:1.5rem; }
+  select, button, input { font-family:inherit; font-size:.85rem; padding:.45rem .8rem; border-radius:4px; border:1px solid var(--border); background:var(--surface); color:var(--text); }
+  button { cursor:pointer; transition:all .15s; }
+  button:hover { border-color:var(--accent); color:var(--accent); }
+  button.primary { background:rgba(0,229,255,.1); border-color:rgba(0,229,255,.4); color:var(--accent); }
+  button.primary:hover { background:rgba(0,229,255,.2); }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:.75rem; margin-bottom:1.5rem; }
+  .card { background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:1rem; }
+  .card-label { font-size:.65rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin-bottom:.25rem; font-family:monospace; }
+  .card-value { font-size:1.4rem; font-weight:700; }
+  .card-value.cyan { color:var(--accent); }
+  .card-value.purple { color:#a78bfa; }
+  .card-value.green { color:var(--accent3); }
+  .card-value.amber { color:var(--warn); }
+
+  .chart-row { display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1.5rem; }
+  .chart-box { background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:1rem; }
+  .chart-box canvas { width:100%!important; max-height:300px; }
+
+  table { width:100%; border-collapse:collapse; font-size:.82rem; }
+  th { background:var(--surface2); color:var(--accent); font-family:monospace; font-size:.68rem; letter-spacing:.06em; text-transform:uppercase; padding:.6rem .8rem; text-align:left; border-bottom:1px solid var(--border); position:sticky; top:0; }
+  td { padding:.55rem .8rem; border-bottom:1px solid var(--border); color:#94a3b8; vertical-align:top; }
+  tr:hover td { background:rgba(0,229,255,.02); }
+  td:first-child { color:var(--text); font-weight:600; }
+  .table-wrap { max-height:500px; overflow:auto; border:1px solid var(--border); border-radius:6px; }
+
+  .toast { position:fixed; bottom:1.5rem; right:1.5rem; background:var(--surface2); border:1px solid var(--border); padding:.75rem 1.25rem; border-radius:6px; font-size:.85rem; opacity:0; transition:opacity .3s; z-index:100; }
+  .toast.show { opacity:1; }
+
+  @media(max-width:768px) {
+    .chart-row { grid-template-columns:1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <div>
+    <h1>RAG Eval <span>Dashboard</span></h1>
+    <div style="font-size:.8rem;color:var(--muted);margin-top:.25rem;">LangGraph + Ollama + ChromaDB on DGX Spark</div>
+  </div>
+  <div class="status-bar" id="statusBar">
+    <span class="badge badge-warn" id="badgeOllama">OLLAMA ...</span>
+    <span class="badge badge-warn" id="badgeChroma">CHROMA ...</span>
+    <span class="badge badge-warn" id="badgeGpu">GPU ...</span>
+  </div>
+</header>
+
+<!-- Status Cards -->
+<section>
+  <h2>System Status</h2>
+  <div class="cards" id="statusCards">
+    <div class="card"><div class="card-label">Ollama Models</div><div class="card-value cyan" id="cModels">--</div></div>
+    <div class="card"><div class="card-label">Indexed Chunks</div><div class="card-value purple" id="cChunks">--</div></div>
+    <div class="card"><div class="card-label">GPU Memory</div><div class="card-value green" id="cGpuMem">--</div></div>
+    <div class="card"><div class="card-label">GPU Temp</div><div class="card-value amber" id="cGpuTemp">--</div></div>
+  </div>
+</section>
+
+<!-- Controls -->
+<section>
+  <h2>Evaluation Runs</h2>
+  <div class="controls">
+    <select id="runSelect"><option value="">-- select run --</option></select>
+    <button onclick="loadRuns()">Refresh</button>
+    <button class="primary" id="btnEval" onclick="triggerEval()">Start Evaluation</button>
+  </div>
+
+  <!-- Summary Cards (populated on run load) -->
+  <div class="cards" id="summaryCards" style="display:none;">
+    <div class="card"><div class="card-label">Models</div><div class="card-value cyan" id="sModels">--</div></div>
+    <div class="card"><div class="card-label">Questions</div><div class="card-value purple" id="sQuestions">--</div></div>
+    <div class="card"><div class="card-label">Avg Latency</div><div class="card-value amber" id="sLatency">--</div></div>
+    <div class="card"><div class="card-label">Avg Faithfulness</div><div class="card-value green" id="sFaith">--</div></div>
+  </div>
+
+  <!-- Charts -->
+  <div class="chart-row" id="chartRow" style="display:none;">
+    <div class="chart-box"><canvas id="chartLatency"></canvas></div>
+    <div class="chart-box"><canvas id="chartQuality"></canvas></div>
+  </div>
+
+  <!-- Results Table -->
+  <div class="table-wrap" id="tableWrap" style="display:none;">
+    <table>
+      <thead><tr>
+        <th>Model</th><th>Question</th><th>Latency</th><th>tok/s</th>
+        <th>Faith.</th><th>Relev.</th><th>Ctx Prec.</th><th>Retries</th><th>GPU GB</th>
+      </tr></thead>
+      <tbody id="resultsTbody"></tbody>
+    </table>
+  </div>
+</section>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = '';  // same origin
+let latencyChart = null, qualityChart = null;
+
+function toast(msg, ms=3000) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), ms);
+}
+
+async function fetchStatus() {
+  try {
+    const r = await fetch(API + '/status');
+    const d = await r.json();
+    document.getElementById('badgeOllama').textContent = d.ollama_reachable ? 'OLLAMA OK' : 'OLLAMA DOWN';
+    document.getElementById('badgeOllama').className = 'badge ' + (d.ollama_reachable ? 'badge-ok' : 'badge-err');
+    document.getElementById('cModels').textContent = d.ollama_models.length;
+    document.getElementById('cChunks').textContent = d.chroma_doc_count.toLocaleString();
+    document.getElementById('badgeChroma').textContent = d.chroma_doc_count > 0 ? 'CHROMA OK' : 'CHROMA EMPTY';
+    document.getElementById('badgeChroma').className = 'badge ' + (d.chroma_doc_count > 0 ? 'badge-ok' : 'badge-warn');
+    if (d.gpu && d.gpu.available) {
+      document.getElementById('cGpuMem').textContent = d.gpu.mem_used_gb + ' / ' + d.gpu.mem_total_gb + ' GB';
+      document.getElementById('cGpuTemp').textContent = d.gpu.temp_c + '°C';
+      document.getElementById('badgeGpu').textContent = 'GPU ' + d.gpu.gpu_util_pct + '%';
+      document.getElementById('badgeGpu').className = 'badge badge-ok';
+    } else {
+      document.getElementById('badgeGpu').textContent = 'GPU N/A';
+      document.getElementById('badgeGpu').className = 'badge badge-warn';
+    }
+    if (d.eval_running) {
+      document.getElementById('btnEval').disabled = true;
+      document.getElementById('btnEval').textContent = 'Running...';
+    } else {
+      document.getElementById('btnEval').disabled = false;
+      document.getElementById('btnEval').textContent = 'Start Evaluation';
+    }
+  } catch(e) { console.error('Status fetch failed', e); }
+}
+
+async function loadRuns() {
+  try {
+    const r = await fetch(API + '/results');
+    const runs = await r.json();
+    const sel = document.getElementById('runSelect');
+    sel.innerHTML = '<option value="">-- select run --</option>';
+    runs.forEach(run => {
+      const opt = document.createElement('option');
+      opt.value = run.run_id; opt.textContent = run.run_id;
+      sel.appendChild(opt);
+    });
+    sel.onchange = () => { if(sel.value) loadRunData(sel.value); };
+  } catch(e) { toast('Failed to load runs'); }
+}
+
+async function loadRunData(runId) {
+  try {
+    const r = await fetch(API + '/results/' + runId);
+    const data = await r.json();
+    renderResults(data);
+  } catch(e) { toast('Failed to load run ' + runId); }
+}
+
+function renderResults(data) {
+  document.getElementById('summaryCards').style.display = '';
+  document.getElementById('chartRow').style.display = '';
+  document.getElementById('tableWrap').style.display = '';
+
+  const models = [...new Set(data.map(d => d.model))];
+  const questions = [...new Set(data.map(d => d.question))];
+  const avgLat = (data.reduce((s,d) => s + (d.total_s||0), 0) / data.length).toFixed(2);
+  const avgFaith = (data.reduce((s,d) => s + (d.faithfulness >= 0 ? d.faithfulness : 0), 0) / data.length).toFixed(2);
+
+  document.getElementById('sModels').textContent = models.length;
+  document.getElementById('sQuestions').textContent = questions.length;
+  document.getElementById('sLatency').textContent = avgLat + 's';
+  document.getElementById('sFaith').textContent = avgFaith;
+
+  // Latency bar chart
+  const latByModel = models.map(m => {
+    const rows = data.filter(d => d.model === m);
+    return rows.reduce((s,d) => s + (d.total_s||0), 0) / rows.length;
+  });
+  if (latencyChart) latencyChart.destroy();
+  latencyChart = new Chart(document.getElementById('chartLatency'), {
+    type: 'bar',
+    data: {
+      labels: models,
+      datasets: [{ label: 'Avg Latency (s)', data: latByModel,
+        backgroundColor: 'rgba(0,229,255,0.3)', borderColor: 'rgba(0,229,255,0.8)', borderWidth: 1 }]
+    },
+    options: { responsive:true, plugins:{legend:{labels:{color:'#94a3b8'}}},
+      scales:{ x:{ticks:{color:'#94a3b8'}}, y:{ticks:{color:'#94a3b8'},beginAtZero:true} } }
+  });
+
+  // Quality radar chart
+  const qualData = models.map(m => {
+    const rows = data.filter(d => d.model === m);
+    return {
+      label: m,
+      data: [
+        rows.reduce((s,d)=>s+(d.faithfulness>=0?d.faithfulness:0),0)/rows.length,
+        rows.reduce((s,d)=>s+(d.relevancy>=0?d.relevancy:0),0)/rows.length,
+        rows.reduce((s,d)=>s+(d.context_precision>=0?d.context_precision:0),0)/rows.length,
+      ],
+    };
+  });
+  const colors = ['rgba(0,229,255,0.5)','rgba(124,58,237,0.5)','rgba(16,185,129,0.5)','rgba(245,158,11,0.5)'];
+  if (qualityChart) qualityChart.destroy();
+  qualityChart = new Chart(document.getElementById('chartQuality'), {
+    type: 'radar',
+    data: {
+      labels: ['Faithfulness', 'Relevancy', 'Context Precision'],
+      datasets: qualData.map((q,i) => ({
+        ...q,
+        backgroundColor: colors[i % colors.length].replace('0.5','0.15'),
+        borderColor: colors[i % colors.length],
+        borderWidth: 2, pointRadius: 3,
+      }))
+    },
+    options: { responsive:true,
+      scales:{ r:{ min:0, max:1, ticks:{stepSize:0.2,color:'#64748b',backdropColor:'transparent'}, grid:{color:'#1e2330'}, pointLabels:{color:'#94a3b8'} } },
+      plugins:{legend:{labels:{color:'#94a3b8'}}} }
+  });
+
+  // Table
+  const tbody = document.getElementById('resultsTbody');
+  tbody.innerHTML = '';
+  data.forEach(d => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${d.model}</td>
+      <td title="${d.answer||''}">${(d.question||'').substring(0,60)}</td>
+      <td>${(d.total_s||0).toFixed(2)}s</td>
+      <td>${(d.tokens_per_sec||0).toFixed(0)}</td>
+      <td>${(d.faithfulness>=0?d.faithfulness:'-').toString().substring(0,4)}</td>
+      <td>${(d.relevancy>=0?d.relevancy:'-').toString().substring(0,4)}</td>
+      <td>${(d.context_precision>=0?d.context_precision:'-').toString().substring(0,4)}</td>
+      <td>${d.retries||0}</td>
+      <td>${d.gpu_mem_used_gb||'-'}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+async function triggerEval() {
+  try {
+    const r = await fetch(API + '/evaluate', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+    const d = await r.json();
+    toast('Evaluation started: ' + (d.models||[]).join(', '));
+    document.getElementById('btnEval').disabled = true;
+    document.getElementById('btnEval').textContent = 'Running...';
+  } catch(e) { toast('Failed to start evaluation'); }
+}
+
+// Init
+fetchStatus();
+loadRuns();
+setInterval(fetchStatus, 10000);
+</script>
+</body>
+</html>
