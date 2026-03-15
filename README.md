@@ -39,8 +39,8 @@ This platform is optimised for the **NVIDIA DGX Spark (GB10)** which has a
 - Pull at least one embedding model and one chat model:
 
 ```bash
-ollama pull nomic-embed-text
-ollama pull mistral-small3.2
+docker exec -it ollama ollama pull nomic-embed-text
+docker exec -it ollama ollama pull mistral-small3.2
 ```
 
 ## Ollama Docker Setup
