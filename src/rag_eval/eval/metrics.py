@@ -23,6 +23,8 @@ class EvalResult:
     # Latency
     retrieve_s: float = 0.0
     generate_s: float = 0.0
+    web_search_used: bool = False
+    web_search_s: float = 0.0
     total_s: float = 0.0
 
     # Token stats

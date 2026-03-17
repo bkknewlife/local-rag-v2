@@ -10,6 +10,7 @@ import json
 import logging
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 
 import pandas as pd
@@ -69,6 +70,7 @@ def run_evaluation(
     questions: list[str] | None = None,
     run_id: str | None = None,
     settings: Settings | None = None,
+    on_progress: Callable[[dict], None] | None = None,
 ) -> list[EvalResult]:
     """Execute a full evaluation sweep with incremental persistence."""
     settings = settings or get_settings()
@@ -80,6 +82,7 @@ def run_evaluation(
     rprint(f"  Models : {settings.eval_models}")
     rprint(f"  Judge  : {settings.judge_model}")
     rprint(f"  Questions: {len(questions)}")
+    rprint(f"  Web search: {'ON' if settings.web_search_enabled else 'off'}")
     rprint(f"  Results : {settings.results_dir / run_id}.*")
 
     graph = build_rag_graph()
@@ -106,6 +109,7 @@ def run_evaluation(
                 "model_name": model,
                 "retries": 0,
                 "max_retries": settings.max_retries,
+                "web_search_enabled": settings.web_search_enabled,
                 "latency": {},
                 "gpu_snapshot": {},
             }
@@ -118,6 +122,9 @@ def run_evaluation(
                     run_id=run_id, model=model, question=question,
                     answer=f"ERROR: {exc}",
                 ))
+                if on_progress:
+                    on_progress({"completed": completed, "total": total_evals,
+                                 "model": model, "question": question, "status": "error"})
                 continue
 
             total_s = time.perf_counter() - t_total
@@ -129,6 +136,11 @@ def run_evaluation(
             ctx_scores = [d.get("score", 0.0) for d in docs]
             answer = final_state.get("generation", "")
 
+            web_used = any(
+                d.get("metadata", {}).get("source") == "web"
+                for d in docs
+            )
+
             result = EvalResult(
                 run_id=run_id,
                 model=model,
@@ -139,6 +151,8 @@ def run_evaluation(
                 retries=final_state.get("retries", 0),
                 retrieve_s=lat.get("retrieve_s", 0.0),
                 generate_s=lat.get("generate_s", 0.0),
+                web_search_used=web_used,
+                web_search_s=lat.get("web_search_s", 0.0),
                 total_s=round(total_s, 3),
                 prompt_tokens=lat.get("prompt_tokens", 0),
                 completion_tokens=lat.get("completion_tokens", 0),
@@ -179,6 +193,12 @@ def run_evaluation(
                 f"rel={float(result.relevancy):.2f} "
                 f"ctx={float(result.context_precision):.2f}"
             )
+            if on_progress:
+                on_progress({"completed": completed, "total": total_evals,
+                             "model": model, "question": question, "status": "ok"})
+
+    if on_progress:
+        on_progress({"type": "done", "run_id": run_id})
 
     store.print_paths()
     _print_summary(store.results, console)

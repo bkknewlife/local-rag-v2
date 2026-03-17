@@ -5,6 +5,13 @@ from __future__ import annotations
 from rag_eval.graph.state import GraphState
 
 
+def route_after_retrieve(state: GraphState) -> str:
+    """After retrieval, decide whether to augment with web search."""
+    if state.get("web_search_enabled"):
+        return "web_search"
+    return "grade_documents"
+
+
 def route_after_grading(state: GraphState) -> str:
     """After grading documents, decide whether to generate or rewrite.
 

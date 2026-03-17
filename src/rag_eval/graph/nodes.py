@@ -83,6 +83,58 @@ def retrieve(state: GraphState) -> GraphState:
     }
 
 
+# ── Node: web_search ────────────────────────────────────────────────
+
+def web_search(state: GraphState) -> GraphState:
+    """Query SearXNG and append web results to the existing documents.
+
+    Only the question text is sent to SearXNG — no dataset content,
+    embeddings, or model answers ever leave the machine.
+    """
+    settings = _get_settings()
+    question = state["question"]
+    max_results = settings.web_search_max_results
+
+    t0 = time.perf_counter()
+    web_docs: list[dict] = []
+    try:
+        resp = httpx.get(
+            f"{settings.searxng_base_url}/search",
+            params={
+                "q": question,
+                "format": "json",
+                "categories": "general",
+                "language": "en",
+            },
+            timeout=30.0,
+        )
+        resp.raise_for_status()
+        results = resp.json().get("results", [])[:max_results]
+        for r in results:
+            content = r.get("content", "").strip()
+            title = r.get("title", "").strip()
+            if not content:
+                continue
+            text = f"{title}\n{content}" if title else content
+            web_docs.append({
+                "text": text,
+                "score": 0.0,
+                "metadata": {"source": "web", "url": r.get("url", "")},
+            })
+        log.info("SearXNG returned %d results for: %s", len(web_docs), question[:60])
+    except Exception as exc:
+        log.warning("SearXNG search failed (continuing without web results): %s", exc)
+
+    elapsed = time.perf_counter() - t0
+    latency = dict(state.get("latency") or {})
+    latency["web_search_s"] = round(elapsed, 4)
+
+    existing_docs = list(state.get("documents") or [])
+    existing_docs.extend(web_docs)
+
+    return {**state, "documents": existing_docs, "latency": latency}
+
+
 # ── Node: grade_documents ──────────────────────────────────────────
 
 def grade_documents(state: GraphState) -> GraphState:

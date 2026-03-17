@@ -12,8 +12,8 @@ quality scoring — fully offline, no cloud dependencies.
 HF Dataset → Chunk → Embed (Ollama/HuggingFace) → ChromaDB Index
                                                         ↓
 Question Bank → Model Loop → LangGraph RAG Pipeline → Metrics + Judge Scores
-                                                        ↓
-                                          FastAPI Dashboard (tables + charts)
+                                   ↑ (opt-in)              ↓
+                              SearXNG Web Search    FastAPI Dashboard
 ```
 
 The LangGraph pipeline is **self-correcting**: it grades retrieved documents,
@@ -35,6 +35,7 @@ This platform is optimised for the **NVIDIA DGX Spark (GB10)** which has a
 
 - **Docker** with NVIDIA CDI support
 - **Ollama** running in Docker at `localhost:11434` (see [Ollama Setup](#ollama-docker-setup))
+- **SearXNG** (optional) — running in Docker at `localhost:8888` for [web search augmentation](#web-search-searxng)
 - **Python 3.12+**
 - Pull at least one embedding model and one chat model:
 
@@ -210,6 +211,8 @@ Options:
   --judge-model        Model to use as the LLM-as-judge
   --embedding-backend  Must match the backend used during ingestion
   --embedding-model    Override embedding model name
+  --web-search         Augment retrieval with SearXNG web results (off by default)
+  --searxng-url        SearXNG base URL (default: http://localhost:8888)
   --run-id             Custom run identifier
   -v, --verbose        Debug logging
 ```
@@ -254,8 +257,11 @@ reload the embedding model after a chat model was used.
 The evaluation graph follows this topology:
 
 ```
-retrieve → grade_documents ──(relevant)──→ generate
-                            └─(empty)───→ rewrite → retrieve
+retrieve ──(web_search on?)──→ web_search → grade_documents
+           └─(off)──────────→ grade_documents
+
+grade_documents ──(relevant)──→ generate
+                └─(empty)───→ rewrite → retrieve
 
 generate → check_hallucination ──(grounded)──→ check_usefulness
                                 └─(not)──────→ generate (retries++)
@@ -263,6 +269,10 @@ generate → check_hallucination ──(grounded)──→ check_usefulness
 check_usefulness ──(useful)──→ END (record result)
                   └─(not)───→ rewrite → retrieve (retries++)
 ```
+
+When `--web-search` is enabled, the `web_search` node queries SearXNG and
+**appends** web results to the ChromaDB documents before grading. See
+[Web Search (SearXNG)](#web-search-searxng) for details.
 
 Each node operates on a shared `GraphState` TypedDict that accumulates
 question, documents, generation, latency breakdowns, and GPU snapshots.
@@ -302,16 +312,84 @@ to `[0.0, 1.0]` to handle models that return scores as strings.
 **Persistence**: Results are saved incrementally after every question to both
 CSV and JSON in `data/results/`, so partial results survive interruptions.
 
+## Dashboard
+
+The web dashboard (`python scripts/serve.py`) provides a full GUI alternative
+to the CLI, with the same capabilities plus live progress tracking. Start it
+with:
+
+```bash
+source .venv/bin/activate
+python scripts/serve.py
+# Open http://localhost:8000
+```
+
+### Dashboard Panels
+
+The dashboard is organized into seven sections, from top to bottom:
+
+1. **System Status** -- Ollama connectivity, indexed chunk count, GPU memory
+   and temperature (auto-refreshes every 10 seconds)
+
+2. **Model Management** -- Table of models currently loaded in VRAM with size
+   and expiry, warm-up controls (model picker, chat/embed role selector,
+   keep-alive duration), unload buttons, and a "Warm All for Eval" button
+   that pre-loads embedding + eval + judge models in one click
+
+3. **Dataset Ingestion** -- Full ingestion form with preset selector
+   (HFforLegal/case-law, santoshtyss/us-court-cases, Custom), field mappings,
+   max rows, streaming toggle. Live progress bar via SSE shows
+   loading/chunking/indexing phases
+
+4. **Performance Settings** -- Runtime-tunable fields (retrieval_top_k,
+   max_retries, embed_batch_size, web_search_max_results, SearXNG URL) with
+   an Apply button. Read-only display of embedding backend/model and Ollama URL
+
+5. **Evaluation Configuration** -- Model checkboxes, judge model dropdown,
+   questions source (server file / custom paste / default), web search toggle,
+   run ID input
+
+6. **Live Progress** -- Progress bar, current model/question display, and
+   scrolling event log connected via SSE. Appears automatically when
+   evaluation starts
+
+7. **Results Viewer** -- Run selector dropdown, summary cards, latency bar
+   chart, quality radar chart, and full results table with web search columns
+
+### Dashboard vs CLI
+
+Every feature available via CLI flags is accessible from the dashboard:
+
+| CLI Flag | Dashboard Equivalent |
+|---|---|
+| `--models` | Model checkboxes |
+| `--judge-model` | Judge dropdown |
+| `--questions-file` | Questions source: Server file |
+| `--web-search` | Web search checkbox |
+| `--searxng-url` | Performance Settings panel |
+| `--run-id` | Run ID text input |
+| `--embedding-backend` | Ingestion form |
+| `--streaming` | Ingestion streaming toggle |
+| `--max-rows` | Ingestion max rows |
+
 ## REST API
 
-| Method | Endpoint           | Description                          |
-|--------|--------------------|--------------------------------------|
-| GET    | `/`                | Dashboard HTML                       |
-| GET    | `/status`          | System status (Ollama, ChromaDB, GPU)|
-| POST   | `/ingest`          | Trigger dataset ingestion            |
-| POST   | `/evaluate`        | Trigger multi-model eval sweep       |
-| GET    | `/results`         | List all evaluation runs             |
-| GET    | `/results/{run_id}`| Get results for a specific run       |
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/` | Dashboard HTML |
+| GET | `/status` | System status (Ollama, ChromaDB, GPU) |
+| GET | `/questions-files` | List available question files in data/ |
+| GET | `/settings` | Current tunable settings |
+| PATCH | `/settings` | Update runtime settings (in-memory) |
+| GET | `/models/running` | Models currently loaded in VRAM |
+| POST | `/models/warm` | Pre-load a model with keep_alive |
+| POST | `/models/unload` | Evict a model from VRAM |
+| POST | `/ingest` | Trigger dataset ingestion |
+| GET | `/ingest/{id}/progress` | SSE stream for ingestion progress |
+| POST | `/evaluate` | Trigger multi-model eval sweep |
+| GET | `/evaluate/{run_id}/progress` | SSE stream for evaluation progress |
+| GET | `/results` | List all evaluation runs |
+| GET | `/results/{run_id}` | Get results for a specific run |
 
 ## Configuration
 
@@ -330,12 +408,69 @@ All settings can be overridden via environment variables prefixed with `RAG_`:
 | `RAG_EMBED_BATCH_SIZE` | `32` | Embedding batch size |
 | `RAG_RETRIEVAL_TOP_K` | `5` | Number of docs to retrieve |
 | `RAG_MAX_RETRIES` | `1` | Max LangGraph self-correction loops |
+| `RAG_WEB_SEARCH_ENABLED` | `False` | Enable SearXNG web search augmentation |
+| `RAG_SEARXNG_BASE_URL` | `http://localhost:8888` | SearXNG API endpoint |
+| `RAG_WEB_SEARCH_MAX_RESULTS` | `3` | Max web results to append per query |
+
+## Web Search (SearXNG)
+
+An optional **web search augmentation** can enrich ChromaDB retrieval with
+live web results via a local SearXNG instance. This is useful when the
+local dataset lacks coverage for a particular question.
+
+### Data Privacy Guarantee
+
+- **Outbound**: Only the question text is sent to SearXNG as a search query
+- **Never sent**: No ChromaDB documents, no dataset content, no embeddings,
+  no model answers
+- **SearXNG runs locally** in Docker on the same machine, so even the
+  question text stays on-premises
+
+### How It Works
+
+1. The `retrieve` node fetches top-k docs from ChromaDB (unchanged)
+2. If `--web-search` is passed, a conditional edge routes to the `web_search` node
+3. `web_search` sends `GET /search?q={question}&format=json` to SearXNG
+4. Results are converted to the same `{"text", "score", "metadata"}` format
+   and **appended** to the existing ChromaDB documents
+5. `grade_documents` grades all documents (local + web) the same way —
+   irrelevant web hits get filtered out
+6. The `generate` node sees web results as additional context (system prompt
+   still says "Answer ONLY using the provided context")
+
+### Usage
+
+```bash
+# Default: local retrieval only
+python scripts/evaluate.py --models mistral-small3.2 \
+  --questions-file data/questions_legal.txt --run-id legal-v1
+
+# With web search augmentation
+python scripts/evaluate.py --models mistral-small3.2 \
+  --questions-file data/questions_legal.txt --run-id legal-v1-web \
+  --web-search
+
+# Custom SearXNG URL
+python scripts/evaluate.py --models mistral-small3.2 \
+  --web-search --searxng-url http://localhost:9090 \
+  --questions-file data/questions_legal.txt --run-id legal-v1-web
+```
+
+### Metrics Tracking
+
+When web search is enabled, two additional fields appear in the results:
+
+| Field | Description |
+|---|---|
+| `web_search_used` | `True` if web results survived grading and were used |
+| `web_search_s` | Latency of the SearXNG API call (seconds) |
 
 ## Performance Tuning Checklist
 
 1. **Set `OLLAMA_MAX_LOADED_MODELS=3`** in the Ollama Docker container
    (biggest single improvement — eliminates model swap overhead)
-2. **Pre-warm all models** before evaluation using `curl` with `keep_alive`
+2. **Pre-warm all models** before evaluation using `curl` with `keep_alive`,
+   or use the dashboard's "Warm All for Eval" button
 3. **Verify GPU access** inside Docker (`docker exec ollama nvidia-smi`)
 4. **Use `--streaming`** with `--max-rows` for large HuggingFace datasets
    to avoid downloading the entire dataset
@@ -362,9 +497,9 @@ src/rag_eval/
   retrieval/
     store.py         ChromaDB retriever (fallback disabled for safety)
   graph/
-    state.py         GraphState TypedDict (includes original_question)
-    nodes.py         LangGraph nodes (retrieve, grade, generate, checks)
-    edges.py         Conditional routing with retry-aware logic
+    state.py         GraphState TypedDict (includes original_question, web_search_enabled)
+    nodes.py         LangGraph nodes (retrieve, web_search, grade, generate, checks)
+    edges.py         Conditional routing with retry-aware logic + web search routing
     builder.py       Graph assembly
   eval/
     harness.py       Multi-model sweep with incremental persistence

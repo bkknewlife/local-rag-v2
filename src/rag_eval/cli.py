@@ -81,6 +81,10 @@ def cli_evaluate() -> None:
     parser.add_argument("--embedding-backend", choices=["ollama", "huggingface"],
                         default=None, help="Embedding backend (must match ingestion)")
     parser.add_argument("--embedding-model", default=None)
+    parser.add_argument("--web-search", action="store_true",
+                        help="Augment ChromaDB retrieval with SearXNG web search results")
+    parser.add_argument("--searxng-url", default=None,
+                        help="SearXNG base URL (default: http://localhost:8888)")
     parser.add_argument("--run-id", default=None)
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
@@ -100,6 +104,10 @@ def cli_evaluate() -> None:
         settings.eval_models = args.models
     if args.judge_model:
         settings.judge_model = args.judge_model
+    if args.web_search:
+        settings.web_search_enabled = True
+    if args.searxng_url:
+        settings.searxng_base_url = args.searxng_url
 
     questions: list[str] | None = None
     if args.questions_file:

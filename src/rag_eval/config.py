@@ -65,10 +65,21 @@ class Settings(BaseSettings):
     # -- Evaluation --
     results_dir: Path = _PROJECT_ROOT / "data" / "results"
 
+    # -- Web Search (SearXNG) --
+    searxng_base_url: str = "http://localhost:8888"
+    web_search_enabled: bool = False
+    web_search_max_results: int = 3
+
     # -- API --
     api_host: str = "0.0.0.0"
     api_port: int = 8000
 
 
+_settings_singleton: Settings | None = None
+
+
 def get_settings() -> Settings:
-    return Settings()
+    global _settings_singleton
+    if _settings_singleton is None:
+        _settings_singleton = Settings()
+    return _settings_singleton

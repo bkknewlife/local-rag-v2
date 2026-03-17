@@ -68,19 +68,27 @@ class OllamaBackend(Embedder):
         self._warmup()
 
     def _warmup(self) -> None:
-        """Pre-load the embedding model in Ollama.
+        """Pre-load the embedding model in Ollama with an 8-hour keep_alive.
 
         On DGX Spark with OLLAMA_MAX_LOADED_MODELS=1, Ollama must unload
         the current chat model before loading the embedding model.  This
         can take 2-4 minutes.  We absorb that cost here so subsequent
         embed calls are fast.
+
+        The ``keep_alive=8h`` matches the manual pre-warming curl commands
+        documented in the README, preventing auto-eviction during long runs.
         """
         import time
         log.info("Warming up Ollama embedding model '%s' (this may take a few minutes "
                  "if Ollama needs to swap models)...", self._model)
         t0 = time.perf_counter()
         try:
-            vecs = self._call_embed_raw(["warmup"])
+            resp = self._client.post(
+                f"{self._base_url}/api/embed",
+                json={"model": self._model, "input": ["warmup"], "keep_alive": "8h"},
+            )
+            resp.raise_for_status()
+            vecs = resp.json()["embeddings"]
             elapsed = time.perf_counter() - t0
             dim = len(vecs[0]) if vecs else "?"
             log.info("Ollama model '%s' ready — dim=%s, warmup took %.1fs",

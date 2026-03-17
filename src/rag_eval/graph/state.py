@@ -24,6 +24,8 @@ class GraphState(TypedDict, total=False):
         Number of query-rewrite / re-generation cycles executed so far.
     max_retries : int
         Upper bound to prevent infinite loops.
+    web_search_enabled : bool
+        Whether to augment ChromaDB retrieval with SearXNG web results.
     latency : dict
         Breakdown of timing per phase (``{"retrieve_s": ..., "generate_s": ..., ...}``).
     gpu_snapshot : dict
@@ -37,5 +39,6 @@ class GraphState(TypedDict, total=False):
     model_name: str
     retries: int
     max_retries: int
+    web_search_enabled: bool
     latency: dict
     gpu_snapshot: dict

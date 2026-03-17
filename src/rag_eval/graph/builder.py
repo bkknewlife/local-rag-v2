@@ -13,8 +13,10 @@ def build_rag_graph() -> StateGraph:
 
     Graph topology::
 
-        retrieve -> grade_documents --(relevant)--> generate
-                                    \\--(empty)----> rewrite -> retrieve
+        retrieve --(web_search on?)--> web_search -> grade_documents
+                 \\--(off)-----------> grade_documents
+        grade_documents --(relevant)--> generate
+                        \\--(empty)----> rewrite -> retrieve
         generate -> check_hallucination --(grounded)--> check_usefulness
                                         \\--(not)-----> generate
         check_usefulness --(useful)----> END
@@ -23,6 +25,7 @@ def build_rag_graph() -> StateGraph:
     graph = StateGraph(GraphState)
 
     graph.add_node("retrieve", nodes.retrieve)
+    graph.add_node("web_search", nodes.web_search)
     graph.add_node("grade_documents", nodes.grade_documents)
     graph.add_node("generate", nodes.generate)
     graph.add_node("check_hallucination", nodes.check_hallucination)
@@ -31,7 +34,12 @@ def build_rag_graph() -> StateGraph:
 
     graph.set_entry_point("retrieve")
 
-    graph.add_edge("retrieve", "grade_documents")
+    graph.add_conditional_edges(
+        "retrieve",
+        edges.route_after_retrieve,
+        {"web_search": "web_search", "grade_documents": "grade_documents"},
+    )
+    graph.add_edge("web_search", "grade_documents")
 
     graph.add_conditional_edges(
         "grade_documents",

@@ -23,18 +23,27 @@
   .badge-ok { background:rgba(16,185,129,.12); color:var(--accent3); border:1px solid rgba(16,185,129,.3); }
   .badge-err { background:rgba(239,68,68,.12); color:var(--danger); border:1px solid rgba(239,68,68,.3); }
   .badge-warn { background:rgba(245,158,11,.12); color:var(--warn); border:1px solid rgba(245,158,11,.3); }
-
   .status-bar { display:flex; gap:.75rem; flex-wrap:wrap; align-items:center; }
 
   section { padding:2rem 0; border-bottom:1px solid var(--border); }
   h2 { font-size:1.15rem; font-weight:600; margin-bottom:1rem; }
+  h3 { font-size:.95rem; font-weight:600; margin:1rem 0 .5rem; color:var(--muted); }
 
-  .controls { display:flex; gap:.75rem; flex-wrap:wrap; align-items:center; margin-bottom:1.5rem; }
-  select, button, input { font-family:inherit; font-size:.85rem; padding:.45rem .8rem; border-radius:4px; border:1px solid var(--border); background:var(--surface); color:var(--text); }
+  .controls { display:flex; gap:.75rem; flex-wrap:wrap; align-items:center; margin-bottom:1rem; }
+  select, button, input, textarea { font-family:inherit; font-size:.85rem; padding:.45rem .8rem; border-radius:4px; border:1px solid var(--border); background:var(--surface); color:var(--text); }
+  textarea { min-height:80px; resize:vertical; width:100%; }
+  input[type="number"] { width:100px; }
+  input[type="text"] { min-width:200px; }
+  label { font-size:.82rem; color:var(--muted); display:flex; align-items:center; gap:.4rem; cursor:pointer; }
+  label input[type="checkbox"], label input[type="radio"] { accent-color:var(--accent); }
   button { cursor:pointer; transition:all .15s; }
   button:hover { border-color:var(--accent); color:var(--accent); }
   button.primary { background:rgba(0,229,255,.1); border-color:rgba(0,229,255,.4); color:var(--accent); }
   button.primary:hover { background:rgba(0,229,255,.2); }
+  button.danger { background:rgba(239,68,68,.08); border-color:rgba(239,68,68,.3); color:var(--danger); }
+  button.danger:hover { background:rgba(239,68,68,.15); }
+  button.warn { background:rgba(245,158,11,.08); border-color:rgba(245,158,11,.3); color:var(--warn); }
+  button.warn:hover { background:rgba(245,158,11,.15); }
   button:disabled { opacity:.4; cursor:not-allowed; }
 
   .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:.75rem; margin-bottom:1.5rem; }
@@ -46,6 +55,14 @@
   .card-value.green { color:var(--accent3); }
   .card-value.amber { color:var(--warn); }
 
+  .form-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:.75rem; margin-bottom:1rem; }
+  .form-group { display:flex; flex-direction:column; gap:.3rem; }
+  .form-group label { font-weight:600; font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; }
+  .form-group .hint { font-size:.7rem; color:var(--muted); }
+
+  .checkbox-grid { display:flex; flex-wrap:wrap; gap:.5rem .75rem; margin:.5rem 0; }
+  .checkbox-grid label { font-size:.82rem; font-weight:400; }
+
   .chart-row { display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1.5rem; }
   .chart-box { background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:1rem; }
   .chart-box canvas { width:100%!important; max-height:300px; }
@@ -55,13 +72,23 @@
   td { padding:.55rem .8rem; border-bottom:1px solid var(--border); color:#94a3b8; vertical-align:top; }
   tr:hover td { background:rgba(0,229,255,.02); }
   td:first-child { color:var(--text); font-weight:600; }
-  .table-wrap { max-height:500px; overflow:auto; border:1px solid var(--border); border-radius:6px; }
+  .table-wrap { max-height:400px; overflow:auto; border:1px solid var(--border); border-radius:6px; }
+
+  .progress-bar { width:100%; height:8px; background:var(--surface2); border-radius:4px; overflow:hidden; margin:.5rem 0; }
+  .progress-fill { height:100%; background:var(--accent); transition:width .3s; border-radius:4px; }
+  .progress-log { max-height:200px; overflow-y:auto; font-size:.78rem; font-family:monospace; background:var(--surface); border:1px solid var(--border); border-radius:4px; padding:.5rem .75rem; margin-top:.5rem; }
+  .progress-log div { padding:.15rem 0; border-bottom:1px solid var(--border); }
+  .progress-log .ok { color:var(--accent3); }
+  .progress-log .err { color:var(--danger); }
 
   .toast { position:fixed; bottom:1.5rem; right:1.5rem; background:var(--surface2); border:1px solid var(--border); padding:.75rem 1.25rem; border-radius:6px; font-size:.85rem; opacity:0; transition:opacity .3s; z-index:100; }
   .toast.show { opacity:1; }
 
+  .hidden { display:none !important; }
+
   @media(max-width:768px) {
     .chart-row { grid-template-columns:1fr; }
+    .form-grid { grid-template-columns:1fr; }
   }
 </style>
 </head>
@@ -80,10 +107,10 @@
   </div>
 </header>
 
-<!-- Status Cards -->
+<!-- System Status -->
 <section>
   <h2>System Status</h2>
-  <div class="cards" id="statusCards">
+  <div class="cards">
     <div class="card"><div class="card-label">Ollama Models</div><div class="card-value cyan" id="cModels">--</div></div>
     <div class="card"><div class="card-label">Indexed Chunks</div><div class="card-value purple" id="cChunks">--</div></div>
     <div class="card"><div class="card-label">GPU Memory</div><div class="card-value green" id="cGpuMem">--</div></div>
@@ -91,35 +118,199 @@
   </div>
 </section>
 
-<!-- Controls -->
+<!-- Model Management -->
 <section>
-  <h2>Evaluation Runs</h2>
+  <h2>Model Management</h2>
+  <h3>Loaded Models (currently in VRAM)</h3>
+  <div class="table-wrap" style="max-height:360px; margin-bottom:1rem;">
+    <table>
+      <thead><tr><th>Model</th><th>Size (GB)</th><th>VRAM (GB)</th><th>Keep-Alive Expires</th><th>Action</th></tr></thead>
+      <tbody id="loadedModelsTbody"><tr><td colspan="5" style="color:var(--muted)">Loading...</td></tr></tbody>
+    </table>
+  </div>
+  <h3>Warm Up Model</h3>
   <div class="controls">
-    <select id="runSelect"><option value="">-- select run --</option></select>
-    <button onclick="loadRuns()">Refresh</button>
+    <select id="warmModel"><option value="">-- select model --</option></select>
+    <select id="warmRole"><option value="chat">Chat</option><option value="embed">Embedding</option></select>
+    <input type="text" id="warmKeepAlive" value="8h" style="width:70px;" title="Keep-alive duration">
+    <button class="warn" onclick="warmModel()">Warm Up</button>
+    <button class="primary" onclick="warmAllForEval()">Warm All for Eval</button>
+    <span style="font-size:.75rem;color:var(--muted);">Warms: embedding model + checked eval models + judge model</span>
+  </div>
+  <div id="warmProgress" class="hidden" style="margin-top:.75rem;">
+    <div style="font-size:.82rem;">
+      <span style="color:var(--accent);" id="warmProgressLabel">Warming...</span>
+      <span style="color:var(--muted);margin-left:.5rem;" id="warmProgressModel"></span>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" id="warmProgressFill" style="width:0%"></div></div>
+    <div class="progress-log" id="warmProgressLog" style="max-height:120px;"></div>
+  </div>
+</section>
+
+<!-- Dataset Ingestion -->
+<section>
+  <h2>Dataset Ingestion</h2>
+  <div class="form-grid">
+    <div class="form-group">
+      <label>Preset</label>
+      <select id="ingestPreset" onchange="applyIngestPreset()">
+        <option value="case-law">HFforLegal/case-law (Legal)</option>
+        <option value="us-court">santoshtyss/us-court-cases (US Courts)</option>
+        <option value="custom">Custom</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Dataset ID</label>
+      <input type="text" id="ingestDataset" value="HFforLegal/case-law">
+    </div>
+    <div class="form-group">
+      <label>Text Field</label>
+      <input type="text" id="ingestTextField" value="document">
+    </div>
+    <div class="form-group">
+      <label>ID Field</label>
+      <input type="text" id="ingestIdField" value="id">
+    </div>
+    <div class="form-group">
+      <label>Title Field</label>
+      <input type="text" id="ingestTitleField" value="title">
+    </div>
+    <div class="form-group">
+      <label>Extra Meta Fields</label>
+      <input type="text" id="ingestExtraMeta" value="citation, jurisdiction" placeholder="comma-separated">
+    </div>
+    <div class="form-group">
+      <label>Max Rows</label>
+      <input type="number" id="ingestMaxRows" placeholder="all" min="1">
+    </div>
+    <div class="form-group" style="justify-content:flex-end;">
+      <label><input type="checkbox" id="ingestStreaming"> Streaming</label>
+    </div>
+  </div>
+  <div class="controls">
+    <button class="primary" id="btnIngest" onclick="triggerIngest()">Start Ingestion</button>
+  </div>
+  <div id="ingestProgress" class="hidden">
+    <div style="font-size:.82rem;color:var(--muted);">Phase: <span id="ingestPhase">--</span> | Chunks: <span id="ingestChunks">0</span></div>
+    <div class="progress-bar"><div class="progress-fill" id="ingestProgressFill" style="width:0%"></div></div>
+  </div>
+</section>
+
+<!-- Performance Settings -->
+<section>
+  <h2>Performance Settings</h2>
+  <div class="form-grid">
+    <div class="form-group">
+      <label>Retrieval Top-K</label>
+      <input type="number" id="settTopK" min="1" max="20">
+    </div>
+    <div class="form-group">
+      <label>Max Retries</label>
+      <input type="number" id="settRetries" min="0" max="5">
+    </div>
+    <div class="form-group">
+      <label>Embed Batch Size</label>
+      <input type="number" id="settBatchSize" min="1" max="256">
+    </div>
+    <div class="form-group">
+      <label>Web Search Max Results</label>
+      <input type="number" id="settWebMax" min="1" max="10">
+    </div>
+    <div class="form-group">
+      <label>SearXNG URL</label>
+      <input type="text" id="settSearxng">
+    </div>
+    <div class="form-group">
+      <label>Embedding Backend</label>
+      <input type="text" id="settEmbedBackend" disabled style="opacity:.6">
+    </div>
+    <div class="form-group">
+      <label>Embedding Model</label>
+      <input type="text" id="settEmbedModel" disabled style="opacity:.6">
+    </div>
+    <div class="form-group">
+      <label>Ollama URL</label>
+      <input type="text" id="settOllamaUrl" disabled style="opacity:.6">
+    </div>
+  </div>
+  <div class="controls">
+    <button class="primary" onclick="applySettings()">Apply Settings</button>
+  </div>
+</section>
+
+<!-- Evaluation Configuration -->
+<section>
+  <h2>Evaluation</h2>
+  <h3>Models to Evaluate</h3>
+  <div class="checkbox-grid" id="evalModelChecks"></div>
+
+  <div class="form-grid" style="margin-top:1rem;">
+    <div class="form-group">
+      <label>Judge Model</label>
+      <select id="evalJudge"><option value="">-- select --</option></select>
+    </div>
+    <div class="form-group">
+      <label>Questions Source</label>
+      <select id="evalQSource" onchange="toggleQuestionSource()">
+        <option value="file">Server File</option>
+        <option value="custom">Custom (paste)</option>
+        <option value="default">Default (5 built-in)</option>
+      </select>
+    </div>
+    <div class="form-group" id="qFileGroup">
+      <label>Questions File</label>
+      <select id="evalQFile"><option value="">Loading...</option></select>
+    </div>
+    <div class="form-group">
+      <label>Run ID</label>
+      <input type="text" id="evalRunId" placeholder="auto-generated">
+    </div>
+  </div>
+  <div class="form-group hidden" id="qCustomGroup" style="margin-bottom:1rem;">
+    <label>Custom Questions (one per line)</label>
+    <textarea id="evalQCustom" placeholder="What is the standard for summary judgment?&#10;What constitutes probable cause?"></textarea>
+  </div>
+  <div class="controls">
+    <label><input type="checkbox" id="evalWebSearch"> Augment with SearXNG web search</label>
+  </div>
+  <div class="controls">
     <button class="primary" id="btnEval" onclick="triggerEval()">Start Evaluation</button>
   </div>
 
-  <!-- Summary Cards (populated on run load) -->
-  <div class="cards" id="summaryCards" style="display:none;">
+  <!-- Live Progress -->
+  <div id="evalProgress" class="hidden" style="margin-top:1rem;">
+    <div style="font-size:.82rem;">
+      <span style="color:var(--accent);" id="evalProgressLabel">0 / 0</span>
+      <span style="color:var(--muted);margin-left:.5rem;" id="evalProgressModel"></span>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" id="evalProgressFill" style="width:0%"></div></div>
+    <div class="progress-log" id="evalProgressLog"></div>
+  </div>
+</section>
+
+<!-- Results Viewer -->
+<section>
+  <h2>Results</h2>
+  <div class="controls">
+    <select id="runSelect"><option value="">-- select run --</option></select>
+    <button onclick="loadRuns()">Refresh</button>
+  </div>
+  <div class="cards hidden" id="summaryCards">
     <div class="card"><div class="card-label">Models</div><div class="card-value cyan" id="sModels">--</div></div>
     <div class="card"><div class="card-label">Questions</div><div class="card-value purple" id="sQuestions">--</div></div>
     <div class="card"><div class="card-label">Avg Latency</div><div class="card-value amber" id="sLatency">--</div></div>
     <div class="card"><div class="card-label">Avg Faithfulness</div><div class="card-value green" id="sFaith">--</div></div>
   </div>
-
-  <!-- Charts -->
-  <div class="chart-row" id="chartRow" style="display:none;">
+  <div class="chart-row hidden" id="chartRow">
     <div class="chart-box"><canvas id="chartLatency"></canvas></div>
     <div class="chart-box"><canvas id="chartQuality"></canvas></div>
   </div>
-
-  <!-- Results Table -->
-  <div class="table-wrap" id="tableWrap" style="display:none;">
+  <div class="table-wrap hidden" id="tableWrap">
     <table>
       <thead><tr>
         <th>Model</th><th>Question</th><th>Latency</th><th>tok/s</th>
-        <th>Faith.</th><th>Relev.</th><th>Ctx Prec.</th><th>Retries</th><th>GPU GB</th>
+        <th>Faith.</th><th>Relev.</th><th>Ctx Prec.</th><th>Retries</th>
+        <th>Web</th><th>GPU GB</th>
       </tr></thead>
       <tbody id="resultsTbody"></tbody>
     </table>
@@ -131,8 +322,11 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const API = '';  // same origin
+const API = '';
 let latencyChart = null, qualityChart = null;
+let _ollamaModels = [];
+let _loadedModelNames = new Set();
+let _evalSSE = null;
 
 function toast(msg, ms=3000) {
   const t = document.getElementById('toast');
@@ -140,25 +334,31 @@ function toast(msg, ms=3000) {
   setTimeout(() => t.classList.remove('show'), ms);
 }
 
+// ── Status Polling ──────────────────────────────────────────────
+
 async function fetchStatus() {
   try {
     const r = await fetch(API + '/status');
     const d = await r.json();
+    _ollamaModels = d.ollama_models || [];
+
     document.getElementById('badgeOllama').textContent = d.ollama_reachable ? 'OLLAMA OK' : 'OLLAMA DOWN';
     document.getElementById('badgeOllama').className = 'badge ' + (d.ollama_reachable ? 'badge-ok' : 'badge-err');
-    document.getElementById('cModels').textContent = d.ollama_models.length;
-    document.getElementById('cChunks').textContent = d.chroma_doc_count.toLocaleString();
+    document.getElementById('cModels').textContent = _ollamaModels.length;
+    document.getElementById('cChunks').textContent = (d.chroma_doc_count||0).toLocaleString();
     document.getElementById('badgeChroma').textContent = d.chroma_doc_count > 0 ? 'CHROMA OK' : 'CHROMA EMPTY';
     document.getElementById('badgeChroma').className = 'badge ' + (d.chroma_doc_count > 0 ? 'badge-ok' : 'badge-warn');
+
     if (d.gpu && d.gpu.available) {
-      document.getElementById('cGpuMem').textContent = d.gpu.mem_used_gb + ' / ' + d.gpu.mem_total_gb + ' GB';
-      document.getElementById('cGpuTemp').textContent = d.gpu.temp_c + '°C';
-      document.getElementById('badgeGpu').textContent = 'GPU ' + d.gpu.gpu_util_pct + '%';
+      document.getElementById('cGpuMem').textContent = (d.gpu.mem_used_gb||'?') + ' / ' + (d.gpu.mem_total_gb||'?') + ' GB';
+      document.getElementById('cGpuTemp').textContent = (d.gpu.temp_c||'?') + '\u00b0C';
+      document.getElementById('badgeGpu').textContent = 'GPU ' + (d.gpu.gpu_util_pct||0) + '%';
       document.getElementById('badgeGpu').className = 'badge badge-ok';
     } else {
       document.getElementById('badgeGpu').textContent = 'GPU N/A';
       document.getElementById('badgeGpu').className = 'badge badge-warn';
     }
+
     if (d.eval_running) {
       document.getElementById('btnEval').disabled = true;
       document.getElementById('btnEval').textContent = 'Running...';
@@ -166,8 +366,411 @@ async function fetchStatus() {
       document.getElementById('btnEval').disabled = false;
       document.getElementById('btnEval').textContent = 'Start Evaluation';
     }
+
+    document.getElementById('btnIngest').disabled = !!d.ingest_running;
+    document.getElementById('btnIngest').textContent = d.ingest_running ? 'Ingesting...' : 'Start Ingestion';
+
+    populateModelSelectors();
   } catch(e) { console.error('Status fetch failed', e); }
 }
+
+function populateModelSelectors() {
+  const warmSel = document.getElementById('warmModel');
+  const judgeSel = document.getElementById('evalJudge');
+  const checksDiv = document.getElementById('evalModelChecks');
+
+  const currentWarm = warmSel.value;
+  const currentJudge = judgeSel.value;
+  const checkedModels = new Set([...document.querySelectorAll('.evalModelCb:checked')].map(c => c.value));
+
+  warmSel.innerHTML = '<option value="">-- select model --</option>';
+  judgeSel.innerHTML = '<option value="">-- select --</option>';
+
+  _ollamaModels.forEach(m => {
+    const loaded = isModelLoaded(m);
+    const label = (loaded ? '\u2713 ' : '') + m + (loaded ? ' (loaded)' : '');
+    warmSel.innerHTML += `<option value="${m}" ${m===currentWarm?'selected':''}>${label}</option>`;
+    judgeSel.innerHTML += `<option value="${m}" ${m===currentJudge?'selected':''}>${label}</option>`;
+  });
+
+  if (checksDiv.children.length === 0 || checksDiv.dataset.count !== String(_ollamaModels.length)) {
+    checksDiv.innerHTML = '';
+    _ollamaModels.forEach(m => {
+      const loaded = isModelLoaded(m);
+      const label = (loaded ? '\u2713 ' : '') + m + (loaded ? ' (loaded)' : '');
+      const checked = checkedModels.has(m) ? 'checked' : '';
+      checksDiv.innerHTML += `<label><input type="checkbox" value="${m}" class="evalModelCb" ${checked}> ${label}</label>`;
+    });
+    checksDiv.dataset.count = String(_ollamaModels.length);
+  }
+}
+
+// ── Loaded Models ───────────────────────────────────────────────
+
+async function fetchLoadedModels() {
+  const tbody = document.getElementById('loadedModelsTbody');
+  try {
+    const r = await fetch(API + '/models/running');
+    const models = await r.json();
+    _loadedModelNames = new Set(models.map(m => m.name));
+    if (!models.length) {
+      tbody.innerHTML = '<tr><td colspan="5" style="color:var(--muted)">No models loaded in VRAM</td></tr>';
+      updateLoadedIndicators();
+      return;
+    }
+    tbody.innerHTML = '';
+    models.forEach(m => {
+      const exp = m.expires_at ? new Date(m.expires_at).toLocaleTimeString() : '--';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td style="color:var(--accent3)">\u2713 ${m.name}</td><td>${m.size_gb}</td><td>${m.size_vram_gb}</td><td>${exp}</td>
+        <td><button class="danger" onclick="unloadModel('${m.name}')" style="padding:.2rem .5rem;font-size:.75rem;" title="Evict this model from VRAM to free memory">Unload from VRAM</button></td>`;
+      tbody.appendChild(tr);
+    });
+    updateLoadedIndicators();
+  } catch(e) {
+    tbody.innerHTML = '<tr><td colspan="5" style="color:var(--danger)">Failed to load</td></tr>';
+  }
+}
+
+function isModelLoaded(name) {
+  if (_loadedModelNames.has(name)) return true;
+  for (const loaded of _loadedModelNames) {
+    const baseName = name.replace(/:latest$/, '');
+    const loadedBase = loaded.replace(/:latest$/, '');
+    if (baseName === loadedBase || loaded.startsWith(baseName) || baseName.startsWith(loadedBase)) return true;
+  }
+  return false;
+}
+
+function updateLoadedIndicators() {
+  const warmSel = document.getElementById('warmModel');
+  for (const opt of warmSel.options) {
+    if (!opt.value) continue;
+    const loaded = isModelLoaded(opt.value);
+    opt.textContent = (loaded ? '\u2713 ' : '') + opt.value + (loaded ? ' (loaded)' : '');
+  }
+  const judgeSel = document.getElementById('evalJudge');
+  for (const opt of judgeSel.options) {
+    if (!opt.value) continue;
+    const loaded = isModelLoaded(opt.value);
+    opt.textContent = (loaded ? '\u2713 ' : '') + opt.value + (loaded ? ' (loaded)' : '');
+  }
+  document.querySelectorAll('.evalModelCb').forEach(cb => {
+    const lbl = cb.parentElement;
+    const loaded = isModelLoaded(cb.value);
+    const text = (loaded ? '\u2713 ' : '') + cb.value + (loaded ? ' (loaded)' : '');
+    lbl.childNodes[lbl.childNodes.length - 1].textContent = ' ' + text;
+  });
+}
+
+async function unloadModel(name) {
+  try {
+    await fetch(API + '/models/unload', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({model:name}) });
+    toast('Unloaded ' + name + ' from VRAM');
+    await fetchLoadedModels();
+  } catch(e) { toast('Failed to unload'); }
+}
+
+async function warmModel() {
+  const model = document.getElementById('warmModel').value;
+  const role = document.getElementById('warmRole').value;
+  const ka = document.getElementById('warmKeepAlive').value || '8h';
+  if (!model) { toast('Select a model first'); return; }
+  try {
+    const r = await fetch(API + '/models/warm', { method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({model, role, keep_alive:ka}) });
+    const d = await r.json();
+    showWarmProgress(d.warm_id, [{model, role}]);
+  } catch(e) { toast('Failed to warm model'); }
+}
+
+async function warmAllForEval() {
+  const models = [...document.querySelectorAll('.evalModelCb:checked')].map(c => c.value);
+  const judge = document.getElementById('evalJudge').value;
+  const ka = document.getElementById('warmKeepAlive').value || '8h';
+  const toWarm = [];
+
+  const embedModel = document.getElementById('settEmbedModel').value;
+  if (embedModel) toWarm.push({model: embedModel, role: 'embed', keep_alive: ka});
+
+  models.forEach(m => toWarm.push({model: m, role: 'chat', keep_alive: ka}));
+  if (judge) toWarm.push({model: judge, role: 'chat', keep_alive: ka});
+
+  if (!toWarm.length) { toast('Select eval models and a judge model first'); return; }
+
+  try {
+    const r = await fetch(API + '/models/warm-all', { method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({models: toWarm}) });
+    const d = await r.json();
+    showWarmProgress(d.warm_id, toWarm);
+  } catch(e) { toast('Failed to start warm-up'); }
+}
+
+function finishWarmProgress(completed, total) {
+  const panel = document.getElementById('warmProgress');
+  document.getElementById('warmProgressLabel').textContent = completed + ' / ' + total + ' models ready';
+  document.getElementById('warmProgressFill').style.width = '100%';
+  document.getElementById('warmProgressModel').textContent = '';
+  fetchLoadedModels();
+  setTimeout(() => { panel.classList.add('hidden'); }, 4000);
+}
+
+function showWarmProgress(warmId, modelList) {
+  const panel = document.getElementById('warmProgress');
+  const logDiv = document.getElementById('warmProgressLog');
+  const total = modelList.length;
+  let completed = 0;
+  let finished = false;
+  let safetyTimer = null;
+
+  panel.classList.remove('hidden');
+  logDiv.innerHTML = '';
+  document.getElementById('warmProgressLabel').textContent = 'Warming 0 / ' + total + '...';
+  document.getElementById('warmProgressModel').textContent = modelList[0] ? modelList[0].model : '';
+  document.getElementById('warmProgressFill').style.width = '0%';
+
+  function markDone() {
+    if (finished) return;
+    finished = true;
+    if (safetyTimer) clearTimeout(safetyTimer);
+    finishWarmProgress(completed || total, total);
+  }
+
+  safetyTimer = setTimeout(() => {
+    if (!finished) {
+      fetchLoadedModels();
+      markDone();
+    }
+  }, 30000);
+
+  const es = new EventSource(API + '/models/warm/' + warmId + '/progress');
+  es.onmessage = function(ev) {
+    const d = JSON.parse(ev.data);
+    if (d.type === 'done') {
+      es.close();
+      markDone();
+      return;
+    }
+    if (d.type === 'heartbeat') return;
+    if (d.error === 'unknown run_id') {
+      es.close();
+      markDone();
+      return;
+    }
+    if (d.status === 'loading') {
+      document.getElementById('warmProgressModel').textContent = d.model + ' (' + (d.role||'chat') + ')...';
+      document.getElementById('warmProgressLabel').textContent = 'Warming ' + completed + ' / ' + total + '...';
+    } else if (d.status === 'ready' || d.status === 'error') {
+      completed = d.completed || (completed + 1);
+      const entry = document.createElement('div');
+      entry.className = d.status === 'ready' ? 'ok' : 'err';
+      const icon = d.status === 'ready' ? '\u2713' : '\u2717';
+      entry.textContent = icon + ' ' + d.model + ' (' + (d.role||'') + ') \u2014 ' + (d.elapsed_s||0) + 's';
+      if (d.error) entry.textContent += ' \u2014 ' + d.error;
+      logDiv.appendChild(entry);
+      logDiv.scrollTop = logDiv.scrollHeight;
+      document.getElementById('warmProgressLabel').textContent = 'Warming ' + completed + ' / ' + total + '...';
+      document.getElementById('warmProgressFill').style.width = Math.round(completed / total * 100) + '%';
+      fetchLoadedModels();
+    }
+  };
+  es.onerror = function() {
+    es.close();
+    markDone();
+  };
+}
+
+// ── Ingestion ───────────────────────────────────────────────────
+
+const INGEST_PRESETS = {
+  'case-law': { dataset:'HFforLegal/case-law', text:'document', id:'id', title:'title', meta:'citation, jurisdiction' },
+  'us-court': { dataset:'santoshtyss/us-court-cases', text:'document', id:'', title:'title', meta:'' },
+  'custom': { dataset:'', text:'context', id:'id', title:'title', meta:'' },
+};
+
+function applyIngestPreset() {
+  const p = INGEST_PRESETS[document.getElementById('ingestPreset').value];
+  if (!p) return;
+  document.getElementById('ingestDataset').value = p.dataset;
+  document.getElementById('ingestTextField').value = p.text;
+  document.getElementById('ingestIdField').value = p.id;
+  document.getElementById('ingestTitleField').value = p.title;
+  document.getElementById('ingestExtraMeta').value = p.meta;
+}
+
+async function triggerIngest() {
+  const maxRows = document.getElementById('ingestMaxRows').value;
+  const metaRaw = document.getElementById('ingestExtraMeta').value.trim();
+  const body = {
+    dataset: document.getElementById('ingestDataset').value,
+    split: 'train',
+    text_field: document.getElementById('ingestTextField').value,
+    id_field: document.getElementById('ingestIdField').value || 'id',
+    title_field: document.getElementById('ingestTitleField').value || 'title',
+    extra_meta_fields: metaRaw ? metaRaw.split(',').map(s => s.trim()).filter(Boolean) : null,
+    max_rows: maxRows ? parseInt(maxRows) : null,
+    streaming: document.getElementById('ingestStreaming').checked,
+  };
+
+  try {
+    const r = await fetch(API + '/ingest', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    const d = await r.json();
+    if (r.status === 409) { toast(d.detail || 'Ingestion already running'); return; }
+    toast('Ingestion started: ' + body.dataset);
+    document.getElementById('ingestProgress').classList.remove('hidden');
+    document.getElementById('btnIngest').disabled = true;
+    document.getElementById('btnIngest').textContent = 'Ingesting...';
+    connectIngestSSE(d.ingest_id);
+  } catch(e) { toast('Failed to start ingestion'); }
+}
+
+function connectIngestSSE(ingestId) {
+  const es = new EventSource(API + '/ingest/' + ingestId + '/progress');
+  es.onmessage = function(ev) {
+    const d = JSON.parse(ev.data);
+    if (d.type === 'done') {
+      es.close();
+      document.getElementById('ingestPhase').textContent = d.error ? 'ERROR: ' + d.error : 'Done';
+      document.getElementById('ingestChunks').textContent = d.chunks_indexed || 0;
+      document.getElementById('ingestProgressFill').style.width = '100%';
+      document.getElementById('btnIngest').disabled = false;
+      document.getElementById('btnIngest').textContent = 'Start Ingestion';
+      if (!d.error) toast('Ingestion complete: ' + (d.chunks_indexed||0) + ' chunks');
+      fetchStatus();
+      return;
+    }
+    document.getElementById('ingestPhase').textContent = d.phase || '--';
+    document.getElementById('ingestChunks').textContent = (d.chunks_done||0) + (d.chunks_total ? ' / '+d.chunks_total : '');
+    if (d.chunks_total > 0) {
+      document.getElementById('ingestProgressFill').style.width = Math.round(d.chunks_done/d.chunks_total*100)+'%';
+    }
+  };
+  es.onerror = function() { es.close(); };
+}
+
+// ── Performance Settings ────────────────────────────────────────
+
+async function fetchSettings() {
+  try {
+    const r = await fetch(API + '/settings');
+    const d = await r.json();
+    document.getElementById('settTopK').value = d.retrieval_top_k;
+    document.getElementById('settRetries').value = d.max_retries;
+    document.getElementById('settBatchSize').value = d.embed_batch_size;
+    document.getElementById('settWebMax').value = d.web_search_max_results;
+    document.getElementById('settSearxng').value = d.searxng_base_url;
+    document.getElementById('settEmbedBackend').value = d.embedding_backend;
+    document.getElementById('settEmbedModel').value = d.embedding_model;
+    document.getElementById('settOllamaUrl').value = d.ollama_base_url;
+  } catch(e) {}
+}
+
+async function applySettings() {
+  const body = {
+    retrieval_top_k: parseInt(document.getElementById('settTopK').value),
+    max_retries: parseInt(document.getElementById('settRetries').value),
+    embed_batch_size: parseInt(document.getElementById('settBatchSize').value),
+    web_search_max_results: parseInt(document.getElementById('settWebMax').value),
+    searxng_base_url: document.getElementById('settSearxng').value,
+  };
+  try {
+    const r = await fetch(API + '/settings', { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    const d = await r.json();
+    toast('Settings updated: ' + Object.keys(d.changes||{}).join(', '));
+  } catch(e) { toast('Failed to apply settings'); }
+}
+
+// ── Questions Files ─────────────────────────────────────────────
+
+async function fetchQuestionFiles() {
+  try {
+    const r = await fetch(API + '/questions-files');
+    const files = await r.json();
+    const sel = document.getElementById('evalQFile');
+    sel.innerHTML = '';
+    files.forEach(f => {
+      sel.innerHTML += `<option value="${f.path}">${f.name} (${f.count} questions)</option>`;
+    });
+    if (!files.length) sel.innerHTML = '<option value="">No .txt files in data/</option>';
+  } catch(e) {}
+}
+
+function toggleQuestionSource() {
+  const v = document.getElementById('evalQSource').value;
+  document.getElementById('qFileGroup').classList.toggle('hidden', v !== 'file');
+  document.getElementById('qCustomGroup').classList.toggle('hidden', v !== 'custom');
+}
+
+// ── Evaluation ──────────────────────────────────────────────────
+
+async function triggerEval() {
+  const models = [...document.querySelectorAll('.evalModelCb:checked')].map(c => c.value);
+  const judge = document.getElementById('evalJudge').value;
+  const qSource = document.getElementById('evalQSource').value;
+  const runId = document.getElementById('evalRunId').value.trim() || null;
+  const webSearch = document.getElementById('evalWebSearch').checked;
+
+  if (!models.length) { toast('Select at least one model'); return; }
+  if (!judge) { toast('Select a judge model'); return; }
+
+  const body = { models, judge_model: judge, run_id: runId, web_search: webSearch };
+
+  if (qSource === 'file') {
+    body.questions_file = document.getElementById('evalQFile').value;
+  } else if (qSource === 'custom') {
+    const raw = document.getElementById('evalQCustom').value;
+    body.questions = raw.split('\n').map(s => s.trim()).filter(Boolean);
+    if (!body.questions.length) { toast('Enter at least one question'); return; }
+  }
+
+  try {
+    const r = await fetch(API + '/evaluate', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body) });
+    const d = await r.json();
+    if (r.status === 409) { toast(d.detail || 'Evaluation already running'); return; }
+    toast('Evaluation started: ' + models.join(', '));
+    document.getElementById('btnEval').disabled = true;
+    document.getElementById('btnEval').textContent = 'Running...';
+    document.getElementById('evalProgress').classList.remove('hidden');
+    document.getElementById('evalProgressLog').innerHTML = '';
+    connectEvalSSE(d.run_id);
+  } catch(e) { toast('Failed to start evaluation'); }
+}
+
+function connectEvalSSE(runId) {
+  if (_evalSSE) _evalSSE.close();
+  _evalSSE = new EventSource(API + '/evaluate/' + runId + '/progress');
+  _evalSSE.onmessage = function(ev) {
+    const d = JSON.parse(ev.data);
+    if (d.type === 'done') {
+      _evalSSE.close(); _evalSSE = null;
+      document.getElementById('evalProgressLabel').textContent = 'Done!';
+      document.getElementById('evalProgressFill').style.width = '100%';
+      document.getElementById('btnEval').disabled = false;
+      document.getElementById('btnEval').textContent = 'Start Evaluation';
+      toast('Evaluation complete: ' + runId);
+      loadRuns();
+      loadRunData(runId);
+      return;
+    }
+    if (d.type === 'heartbeat') return;
+    const pct = d.total > 0 ? Math.round(d.completed / d.total * 100) : 0;
+    document.getElementById('evalProgressLabel').textContent = d.completed + ' / ' + d.total;
+    document.getElementById('evalProgressModel').textContent = d.model || '';
+    document.getElementById('evalProgressFill').style.width = pct + '%';
+    const logDiv = document.getElementById('evalProgressLog');
+    const entry = document.createElement('div');
+    entry.className = d.status === 'ok' ? 'ok' : 'err';
+    const q = (d.question||'').substring(0,60);
+    entry.textContent = (d.status==='ok'?'\u2713':'\u2717') + ' [' + d.model + '] ' + q;
+    logDiv.appendChild(entry);
+    logDiv.scrollTop = logDiv.scrollHeight;
+  };
+  _evalSSE.onerror = function() {
+    _evalSSE.close(); _evalSSE = null;
+  };
+}
+
+// ── Results ─────────────────────────────────────────────────────
 
 async function loadRuns() {
   try {
@@ -189,104 +792,93 @@ async function loadRunData(runId) {
     const r = await fetch(API + '/results/' + runId);
     const data = await r.json();
     renderResults(data);
+    const sel = document.getElementById('runSelect');
+    sel.value = runId;
   } catch(e) { toast('Failed to load run ' + runId); }
 }
 
 function renderResults(data) {
-  document.getElementById('summaryCards').style.display = '';
-  document.getElementById('chartRow').style.display = '';
-  document.getElementById('tableWrap').style.display = '';
+  document.getElementById('summaryCards').classList.remove('hidden');
+  document.getElementById('chartRow').classList.remove('hidden');
+  document.getElementById('tableWrap').classList.remove('hidden');
 
   const models = [...new Set(data.map(d => d.model))];
   const questions = [...new Set(data.map(d => d.question))];
-  const avgLat = (data.reduce((s,d) => s + (d.total_s||0), 0) / data.length).toFixed(2);
-  const avgFaith = (data.reduce((s,d) => s + (d.faithfulness >= 0 ? d.faithfulness : 0), 0) / data.length).toFixed(2);
+  const valid = data.filter(d => d.total_s > 0);
+  const avgLat = valid.length ? (valid.reduce((s,d) => s + d.total_s, 0) / valid.length).toFixed(2) : '0';
+  const avgFaith = valid.length ? (valid.reduce((s,d) => s + (d.faithfulness >= 0 ? d.faithfulness : 0), 0) / valid.length).toFixed(2) : '0';
 
   document.getElementById('sModels').textContent = models.length;
   document.getElementById('sQuestions').textContent = questions.length;
   document.getElementById('sLatency').textContent = avgLat + 's';
   document.getElementById('sFaith').textContent = avgFaith;
 
-  // Latency bar chart
   const latByModel = models.map(m => {
-    const rows = data.filter(d => d.model === m);
-    return rows.reduce((s,d) => s + (d.total_s||0), 0) / rows.length;
+    const rows = data.filter(d => d.model === m && d.total_s > 0);
+    return rows.length ? rows.reduce((s,d) => s + d.total_s, 0) / rows.length : 0;
   });
   if (latencyChart) latencyChart.destroy();
   latencyChart = new Chart(document.getElementById('chartLatency'), {
     type: 'bar',
-    data: {
-      labels: models,
-      datasets: [{ label: 'Avg Latency (s)', data: latByModel,
-        backgroundColor: 'rgba(0,229,255,0.3)', borderColor: 'rgba(0,229,255,0.8)', borderWidth: 1 }]
-    },
+    data: { labels: models, datasets: [{ label: 'Avg Latency (s)', data: latByModel,
+      backgroundColor: 'rgba(0,229,255,0.3)', borderColor: 'rgba(0,229,255,0.8)', borderWidth: 1 }] },
     options: { responsive:true, plugins:{legend:{labels:{color:'#94a3b8'}}},
       scales:{ x:{ticks:{color:'#94a3b8'}}, y:{ticks:{color:'#94a3b8'},beginAtZero:true} } }
   });
 
-  // Quality radar chart
   const qualData = models.map(m => {
-    const rows = data.filter(d => d.model === m);
-    return {
-      label: m,
-      data: [
-        rows.reduce((s,d)=>s+(d.faithfulness>=0?d.faithfulness:0),0)/rows.length,
-        rows.reduce((s,d)=>s+(d.relevancy>=0?d.relevancy:0),0)/rows.length,
-        rows.reduce((s,d)=>s+(d.context_precision>=0?d.context_precision:0),0)/rows.length,
-      ],
-    };
+    const rows = data.filter(d => d.model === m && d.total_s > 0);
+    if (!rows.length) return { label: m, data: [0,0,0] };
+    return { label: m, data: [
+      rows.reduce((s,d)=>s+(d.faithfulness>=0?d.faithfulness:0),0)/rows.length,
+      rows.reduce((s,d)=>s+(d.relevancy>=0?d.relevancy:0),0)/rows.length,
+      rows.reduce((s,d)=>s+(d.context_precision>=0?d.context_precision:0),0)/rows.length,
+    ]};
   });
-  const colors = ['rgba(0,229,255,0.5)','rgba(124,58,237,0.5)','rgba(16,185,129,0.5)','rgba(245,158,11,0.5)'];
+  const colors = ['rgba(0,229,255,0.5)','rgba(124,58,237,0.5)','rgba(16,185,129,0.5)','rgba(245,158,11,0.5)','rgba(239,68,68,0.5)'];
   if (qualityChart) qualityChart.destroy();
   qualityChart = new Chart(document.getElementById('chartQuality'), {
     type: 'radar',
-    data: {
-      labels: ['Faithfulness', 'Relevancy', 'Context Precision'],
-      datasets: qualData.map((q,i) => ({
-        ...q,
+    data: { labels: ['Faithfulness', 'Relevancy', 'Context Precision'],
+      datasets: qualData.map((q,i) => ({ ...q,
         backgroundColor: colors[i % colors.length].replace('0.5','0.15'),
-        borderColor: colors[i % colors.length],
-        borderWidth: 2, pointRadius: 3,
-      }))
-    },
+        borderColor: colors[i % colors.length], borderWidth: 2, pointRadius: 3 })) },
     options: { responsive:true,
       scales:{ r:{ min:0, max:1, ticks:{stepSize:0.2,color:'#64748b',backdropColor:'transparent'}, grid:{color:'#1e2330'}, pointLabels:{color:'#94a3b8'} } },
       plugins:{legend:{labels:{color:'#94a3b8'}}} }
   });
 
-  // Table
+  const hasWeb = data.some(d => d.web_search_used);
   const tbody = document.getElementById('resultsTbody');
   tbody.innerHTML = '';
   data.forEach(d => {
     const tr = document.createElement('tr');
+    const webCol = hasWeb
+      ? (d.web_search_used ? `<td style="color:var(--accent3)">\u2713 ${(d.web_search_s||0).toFixed(1)}s</td>` : '<td>--</td>')
+      : '<td>--</td>';
     tr.innerHTML = `
       <td>${d.model}</td>
-      <td title="${d.answer||''}">${(d.question||'').substring(0,60)}</td>
+      <td title="${(d.answer||'').replace(/"/g,'&quot;')}">${(d.question||'').substring(0,55)}</td>
       <td>${(d.total_s||0).toFixed(2)}s</td>
-      <td>${(d.tokens_per_sec||0).toFixed(0)}</td>
+      <td>${(d.tokens_per_sec||0).toFixed?.(0) ?? d.tokens_per_sec}</td>
       <td>${(d.faithfulness>=0?d.faithfulness:'-').toString().substring(0,4)}</td>
       <td>${(d.relevancy>=0?d.relevancy:'-').toString().substring(0,4)}</td>
       <td>${(d.context_precision>=0?d.context_precision:'-').toString().substring(0,4)}</td>
       <td>${d.retries||0}</td>
+      ${webCol}
       <td>${d.gpu_mem_used_gb||'-'}</td>`;
     tbody.appendChild(tr);
   });
 }
 
-async function triggerEval() {
-  try {
-    const r = await fetch(API + '/evaluate', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
-    const d = await r.json();
-    toast('Evaluation started: ' + (d.models||[]).join(', '));
-    document.getElementById('btnEval').disabled = true;
-    document.getElementById('btnEval').textContent = 'Running...';
-  } catch(e) { toast('Failed to start evaluation'); }
-}
+// ── Init ────────────────────────────────────────────────────────
 
-// Init
 fetchStatus();
+fetchLoadedModels();
+fetchSettings();
+fetchQuestionFiles();
 loadRuns();
-setInterval(fetchStatus, 10000);
+setInterval(() => { fetchStatus(); fetchLoadedModels(); }, 10000);
 </script>
 </body>
 </html>
