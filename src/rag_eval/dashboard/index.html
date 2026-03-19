@@ -280,9 +280,10 @@
 
   <!-- Live Progress -->
   <div id="evalProgress" class="hidden" style="margin-top:1rem;">
-    <div style="font-size:.82rem;">
+    <div style="font-size:.82rem;display:flex;align-items:center;gap:.6rem;flex-wrap:wrap;">
       <span style="color:var(--accent);" id="evalProgressLabel">0 / 0</span>
-      <span style="color:var(--muted);margin-left:.5rem;" id="evalProgressModel"></span>
+      <span style="color:var(--muted);" id="evalProgressModel"></span>
+      <code id="evalProgressRunId" style="background:var(--surface);padding:2px 8px;border-radius:4px;user-select:all;cursor:text;font-size:.78rem;color:var(--muted);display:none;"></code>
     </div>
     <div class="progress-bar"><div class="progress-fill" id="evalProgressFill" style="width:0%"></div></div>
     <div class="progress-log" id="evalProgressLog"></div>
@@ -751,6 +752,9 @@ async function triggerEval() {
     document.getElementById('btnEval').textContent = 'Running...';
     document.getElementById('evalProgress').classList.remove('hidden');
     document.getElementById('evalProgressLog').innerHTML = '';
+    const ridEl = document.getElementById('evalProgressRunId');
+    ridEl.textContent = d.run_id;
+    ridEl.style.display = 'inline-block';
     connectEvalSSE(d.run_id);
   } catch(e) { toast('Failed to start evaluation'); }
 }
@@ -763,10 +767,11 @@ function connectEvalSSE(runId) {
     if (d.type === 'done') {
       _evalSSE.close(); _evalSSE = null;
       document.getElementById('evalProgressLabel').textContent = 'Done!';
+      document.getElementById('evalProgressModel').textContent = '';
       document.getElementById('evalProgressFill').style.width = '100%';
       document.getElementById('btnEval').disabled = false;
       document.getElementById('btnEval').textContent = 'Start Evaluation';
-      toast('Evaluation complete: ' + runId);
+      toast('Evaluation complete — Run ID: ' + runId);
       loadRuns();
       loadRunData(runId);
       return;
