@@ -275,6 +275,7 @@
   </div>
   <div class="controls">
     <button class="primary" id="btnEval" onclick="triggerEval()">Start Evaluation</button>
+    <button class="warn" id="btnEvalReset" onclick="resetEvalFlag()" style="display:none;" title="Force-reset the running flag if evaluation is stuck">Reset Stuck</button>
   </div>
 
   <!-- Live Progress -->
@@ -325,6 +326,7 @@
 const API = '';
 let latencyChart = null, qualityChart = null;
 let _ollamaModels = [];
+let _ollamaChatModels = [];
 let _loadedModelNames = new Set();
 let _evalSSE = null;
 
@@ -341,6 +343,7 @@ async function fetchStatus() {
     const r = await fetch(API + '/status');
     const d = await r.json();
     _ollamaModels = d.ollama_models || [];
+    _ollamaChatModels = d.ollama_chat_models || _ollamaModels;
 
     document.getElementById('badgeOllama').textContent = d.ollama_reachable ? 'OLLAMA OK' : 'OLLAMA DOWN';
     document.getElementById('badgeOllama').className = 'badge ' + (d.ollama_reachable ? 'badge-ok' : 'badge-err');
@@ -362,9 +365,11 @@ async function fetchStatus() {
     if (d.eval_running) {
       document.getElementById('btnEval').disabled = true;
       document.getElementById('btnEval').textContent = 'Running...';
+      document.getElementById('btnEvalReset').style.display = 'inline-block';
     } else {
       document.getElementById('btnEval').disabled = false;
       document.getElementById('btnEval').textContent = 'Start Evaluation';
+      document.getElementById('btnEvalReset').style.display = 'none';
     }
 
     document.getElementById('btnIngest').disabled = !!d.ingest_running;
@@ -390,18 +395,23 @@ function populateModelSelectors() {
     const loaded = isModelLoaded(m);
     const label = (loaded ? '\u2713 ' : '') + m + (loaded ? ' (loaded)' : '');
     warmSel.innerHTML += `<option value="${m}" ${m===currentWarm?'selected':''}>${label}</option>`;
+  });
+
+  _ollamaChatModels.forEach(m => {
+    const loaded = isModelLoaded(m);
+    const label = (loaded ? '\u2713 ' : '') + m + (loaded ? ' (loaded)' : '');
     judgeSel.innerHTML += `<option value="${m}" ${m===currentJudge?'selected':''}>${label}</option>`;
   });
 
-  if (checksDiv.children.length === 0 || checksDiv.dataset.count !== String(_ollamaModels.length)) {
+  if (checksDiv.children.length === 0 || checksDiv.dataset.count !== String(_ollamaChatModels.length)) {
     checksDiv.innerHTML = '';
-    _ollamaModels.forEach(m => {
+    _ollamaChatModels.forEach(m => {
       const loaded = isModelLoaded(m);
       const label = (loaded ? '\u2713 ' : '') + m + (loaded ? ' (loaded)' : '');
       const checked = checkedModels.has(m) ? 'checked' : '';
       checksDiv.innerHTML += `<label><input type="checkbox" value="${m}" class="evalModelCb" ${checked}> ${label}</label>`;
     });
-    checksDiv.dataset.count = String(_ollamaModels.length);
+    checksDiv.dataset.count = String(_ollamaChatModels.length);
   }
 }
 
@@ -702,6 +712,15 @@ function toggleQuestionSource() {
 }
 
 // ── Evaluation ──────────────────────────────────────────────────
+
+async function resetEvalFlag() {
+  try {
+    const r = await fetch(API + '/evaluate/reset', { method: 'POST' });
+    const d = await r.json();
+    toast(d.was_running ? 'Evaluation flag reset' : 'Nothing to reset');
+    fetchStatus();
+  } catch(e) { toast('Failed to reset'); }
+}
 
 async function triggerEval() {
   const models = [...document.querySelectorAll('.evalModelCb:checked')].map(c => c.value);

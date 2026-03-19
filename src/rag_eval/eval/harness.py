@@ -2,7 +2,10 @@
 across models and questions, collecting metrics and judge scores.
 
 Results are persisted incrementally after each question to CSV and JSON,
-so partial results survive if the process is interrupted."""
+so partial results survive if the process is interrupted.
+
+Per-run logs are written to ``data/results/<run_id>.log`` and include
+full judge scoring traces (raw responses, parse failures, fallback scores)."""
 
 from __future__ import annotations
 
@@ -22,6 +25,7 @@ from rag_eval.config import Settings, get_settings
 from rag_eval.graph.builder import build_rag_graph
 from rag_eval.eval import gpu_monitor, judge
 from rag_eval.eval.metrics import EvalResult
+from rag_eval.logging_setup import attach_run_log, detach_run_log
 
 log = logging.getLogger(__name__)
 
@@ -78,12 +82,46 @@ def run_evaluation(
     run_id = run_id or uuid.uuid4().hex[:12]
     console = Console()
 
+    run_log_handler = attach_run_log(run_id, directory=settings.results_dir)
+
+    _EMBED_PREFIXES = ("nomic-embed", "mxbai-embed", "all-minilm",
+                       "snowflake-arctic-embed", "bge-", "e5-", "gte-",
+                       "jina-embeddings")
+    filtered = [
+        m for m in settings.eval_models
+        if not any(m.lower().startswith(p) or f"/{p}" in m.lower()
+                   for p in _EMBED_PREFIXES)
+    ]
+    if filtered != settings.eval_models:
+        skipped = set(settings.eval_models) - set(filtered)
+        log.warning("Skipping embedding-only models (cannot chat): %s", skipped)
+        rprint(f"[yellow]⚠ Skipping embedding-only models: {skipped}[/yellow]")
+        settings.eval_models = filtered
+
+    if not settings.eval_models:
+        log.error("No chat-capable models to evaluate — aborting run.")
+        rprint("[bold red]No chat-capable models to evaluate. Aborting.[/bold red]")
+        return []
+
+    log.info("=" * 72)
+    log.info("EVALUATION RUN: %s", run_id)
+    log.info("  eval_models   : %s", settings.eval_models)
+    log.info("  judge_model   : %s", settings.judge_model)
+    log.info("  questions     : %d", len(questions))
+    log.info("  web_search    : %s", settings.web_search_enabled)
+    log.info("  embed_backend : %s (%s)", settings.embedding_backend, settings.embedding_model)
+    log.info("  ollama_url    : %s", settings.ollama_base_url)
+    log.info("  retrieval_top_k: %d", settings.retrieval_top_k)
+    log.info("  max_retries   : %d", settings.max_retries)
+    log.info("=" * 72)
+
     rprint(f"\n[bold cyan]Starting evaluation run: {run_id}[/bold cyan]")
     rprint(f"  Models : {settings.eval_models}")
     rprint(f"  Judge  : {settings.judge_model}")
     rprint(f"  Questions: {len(questions)}")
     rprint(f"  Web search: {'ON' if settings.web_search_enabled else 'off'}")
     rprint(f"  Results : {settings.results_dir / run_id}.*")
+    rprint(f"  Log    : {settings.results_dir / run_id}.log")
 
     graph = build_rag_graph()
     store = _ResultStore(run_id, settings.results_dir)
@@ -96,6 +134,7 @@ def run_evaluation(
 
         for q_idx, question in enumerate(questions, 1):
             completed += 1
+            log.info("--- [%d/%d] model=%s question=%r", completed, total_evals, model, question[:80])
             rprint(f"  [{completed}/{total_evals}] {question[:70]}...")
             t_total = time.perf_counter()
 
@@ -116,11 +155,17 @@ def run_evaluation(
 
             try:
                 final_state = graph.invoke(initial_state)
+                log.info("  Graph completed: retries=%d docs=%d web=%s gen_len=%d",
+                         final_state.get("retries", 0),
+                         len(final_state.get("documents", [])),
+                         any(d.get("metadata", {}).get("source") == "web"
+                             for d in final_state.get("documents", [])),
+                         len(final_state.get("generation", "")))
             except Exception as exc:
                 log.error("Graph failed for %s / %r: %s", model, question, exc)
                 store.append(EvalResult(
-                    run_id=run_id, model=model, question=question,
-                    answer=f"ERROR: {exc}",
+                    run_id=run_id, model=model, judge_model=settings.judge_model,
+                    question=question, answer=f"ERROR: {exc}",
                 ))
                 if on_progress:
                     on_progress({"completed": completed, "total": total_evals,
@@ -144,6 +189,7 @@ def run_evaluation(
             result = EvalResult(
                 run_id=run_id,
                 model=model,
+                judge_model=settings.judge_model,
                 question=question,
                 answer=answer,
                 contexts=ctx_texts,
@@ -185,6 +231,11 @@ def run_evaluation(
             except Exception as exc:
                 log.warning("Judge context_precision failed: %s", exc)
 
+            log.info("  Scores: faith=%.2f rel=%.2f ctx=%.2f | %.1fs | %d tok/s | retries=%d",
+                     float(result.faithfulness), float(result.relevancy),
+                     float(result.context_precision), result.total_s,
+                     result.tokens_per_sec, result.retries)
+
             store.append(result)
             rprint(
                 f"    [green]✓[/green] {result.total_s}s | "
@@ -200,8 +251,14 @@ def run_evaluation(
     if on_progress:
         on_progress({"type": "done", "run_id": run_id})
 
+    log.info("=" * 72)
+    log.info("EVALUATION COMPLETE: %s — %d results", run_id, len(store.results))
+    log.info("=" * 72)
+
     store.print_paths()
     _print_summary(store.results, console)
+
+    detach_run_log(run_log_handler)
     return store.results
 
 

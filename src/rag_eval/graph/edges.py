@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import logging
+
 from rag_eval.graph.state import GraphState
+
+log = logging.getLogger(__name__)
 
 
 def route_after_retrieve(state: GraphState) -> str:
     """After retrieval, decide whether to augment with web search."""
     if state.get("web_search_enabled"):
+        log.debug("[route] after_retrieve -> web_search")
         return "web_search"
+    log.debug("[route] after_retrieve -> grade_documents")
     return "grade_documents"
 
 

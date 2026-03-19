@@ -12,8 +12,9 @@ class EvalResult:
 
     run_id: str
     model: str
-    question: str
-    answer: str
+    judge_model: str = ""
+    question: str = ""
+    answer: str = ""
     contexts: list[str] = field(default_factory=list)
     context_scores: list[float] = field(default_factory=list)
 

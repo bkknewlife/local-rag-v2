@@ -7,6 +7,9 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
 from rag_eval.api.routes import router
+from rag_eval.logging_setup import setup_logging
+
+setup_logging()
 
 app = FastAPI(
     title="RAG Eval Platform",

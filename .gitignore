@@ -9,9 +9,10 @@ build/
 # Environment / secrets
 .env
 
-# Heavy data (ChromaDB index, HF cache)
+# Heavy data (ChromaDB index, HF cache, logs)
 data/chroma_db/
 data/results/
+data/logs/
 
 # IDE
 .cursor/

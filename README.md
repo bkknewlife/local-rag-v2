@@ -48,6 +48,8 @@ docker exec -it ollama ollama pull mistral-small3.2
 
 The Ollama container configuration is **critical** for performance. The two
 most impactful settings are GPU access and `OLLAMA_MAX_LOADED_MODELS`.
+Set it to **4** to keep the embedding model, eval model(s), and judge model
+all resident in VRAM simultaneously.
 
 ### Creating the Container
 
@@ -58,18 +60,28 @@ docker run -d \
   -v ollama:/root/.ollama \
   -p 11434:11434 \
   -e OLLAMA_HOST=0.0.0.0:11434 \
-  -e OLLAMA_MAX_LOADED_MODELS=3 \
+  -e OLLAMA_MAX_LOADED_MODELS=4 \
   -e OLLAMA_FLASH_ATTENTION=1 \
   -e OLLAMA_KV_CACHE_TYPE=q8_0 \
   -e OLLAMA_NUM_PARALLEL=1 \
   ollama/ollama:latest
 ```
 
+> **Changing environment variables** (e.g. `OLLAMA_MAX_LOADED_MODELS`) requires
+> recreating the container. Models are stored in the `ollama` Docker volume and
+> persist across container removals -- no need to re-pull anything.
+>
+> ```bash
+> docker stop ollama
+> docker rm ollama
+> # Then re-run the docker run command above with the new values
+> ```
+
 ### Key Environment Variables
 
 | Variable | Recommended | Why |
 |---|---|---|
-| `OLLAMA_MAX_LOADED_MODELS` | `3` | Keeps embed + eval + judge models resident simultaneously. With `1` (default), every model transition triggers a 2-4 minute swap. |
+| `OLLAMA_MAX_LOADED_MODELS` | `4` | Keeps embed + eval model(s) + judge all resident simultaneously. With `1` (default), every model transition triggers a 2-4 minute swap. |
 | `OLLAMA_FLASH_ATTENTION` | `1` | Enables flash attention for faster inference |
 | `OLLAMA_KV_CACHE_TYPE` | `q8_0` | Quantised KV cache reduces memory per loaded model |
 | `OLLAMA_NUM_PARALLEL` | `1` | Single-request mode (sufficient for sequential eval) |
@@ -98,26 +110,27 @@ docker exec ollama nvidia-smi
 
 ### Why OLLAMA_MAX_LOADED_MODELS Matters
 
-During evaluation, three models are used concurrently:
+During evaluation, up to four models are used concurrently:
 
 | Role | Example Model | Size |
 |---|---|---|
 | Embedding | `nomic-embed-text` | ~0.3 GB |
-| Evaluation | `mistral-small3.2` | ~27 GB |
-| Judge | `deepseek-r1-abliterated:32b-q8` | ~35 GB |
+| Evaluation (1) | `mistral-small3.2` | ~27 GB |
+| Evaluation (2) | `deepseek-r1-abliterated:32b-q8` | ~35 GB |
+| Judge | `llama3.3:70b` | ~40 GB |
 
 With `OLLAMA_MAX_LOADED_MODELS=1` (default), Ollama evicts the current model
 before loading the next one. Each swap takes **2-4 minutes** on the GB10. A
 single question requires 3-4 swaps (embed → eval → judge → embed), turning a
 10-second evaluation into a 15-minute ordeal.
 
-With `OLLAMA_MAX_LOADED_MODELS=3`, all three models stay resident (~62 GB total
-out of 119 GB available), and model transitions are instant.
+With `OLLAMA_MAX_LOADED_MODELS=4`, all models stay resident in unified memory
+(the DGX Spark GB10 has 128 GB shared CPU/GPU), and model transitions are instant.
 
 | Setting | Swaps/question | Time/question | 25 questions |
 |---|---|---|---|
 | `MAX_LOADED_MODELS=1` | 3-4 × 3 min | ~40 min | ~16 hours |
-| `MAX_LOADED_MODELS=3` | 0 | ~10-30s | ~15-30 min |
+| `MAX_LOADED_MODELS=4` | 0 | ~10-30s | ~15-30 min |
 
 ## Pre-warming Models
 
@@ -412,6 +425,62 @@ All settings can be overridden via environment variables prefixed with `RAG_`:
 | `RAG_SEARXNG_BASE_URL` | `http://localhost:8888` | SearXNG API endpoint |
 | `RAG_WEB_SEARCH_MAX_RESULTS` | `3` | Max web results to append per query |
 
+## Logging
+
+The platform uses a centralized logging system with three tiers:
+
+### Application Log (always on)
+
+```
+data/logs/rag_eval.log        # rotating: 10 MB × 5 backups
+```
+
+Captures all `INFO`+ events from every module: ingestion progress, embedding
+warm-ups, API requests, evaluation flow, GPU monitor, etc. Persists across
+runs. Use `-v` / `--verbose` on any CLI command to include `DEBUG` level.
+
+### Per-Run Evaluation Log
+
+```
+data/results/<run_id>.log     # created automatically with each eval run
+```
+
+Contains the full trace of a single evaluation, including:
+- Run configuration (models, judge, web search, embedding backend)
+- Per-question retrieval scores, document grading decisions, generation stats
+- **Judge raw responses** (the actual JSON returned by the judge model)
+- Judge parse failures and fallback scores (the 0.5 defaults)
+- Hallucination/usefulness check verdicts and retry decisions
+- Final scores and timing for each question
+
+This is the primary file for post-mortem analysis of scoring anomalies.
+
+### Per-Ingest Log
+
+```
+data/results/ingest-<dataset>.log
+```
+
+Traces dataset loading, chunking, and indexing for ingestion runs.
+
+### Result JSON (judge_model field)
+
+Every entry in `<run_id>.json` now includes a `judge_model` field recording
+which model performed the scoring, enabling fair cross-run comparisons.
+
+### Viewing Logs
+
+```bash
+# Tail the application log
+tail -f data/logs/rag_eval.log
+
+# Search a per-run log for judge failures
+grep "Fallback score\|Failed to parse" data/results/my-run.log
+
+# Find all judge raw responses for a question
+grep "judge:faithfulness.*Raw response" data/results/my-run.log
+```
+
 ## Web Search (SearXNG)
 
 An optional **web search augmentation** can enrich ChromaDB retrieval with
@@ -467,7 +536,7 @@ When web search is enabled, two additional fields appear in the results:
 
 ## Performance Tuning Checklist
 
-1. **Set `OLLAMA_MAX_LOADED_MODELS=3`** in the Ollama Docker container
+1. **Set `OLLAMA_MAX_LOADED_MODELS=4`** in the Ollama Docker container
    (biggest single improvement — eliminates model swap overhead)
 2. **Pre-warm all models** before evaluation using `curl` with `keep_alive`,
    or use the dashboard's "Warm All for Eval" button
@@ -502,10 +571,11 @@ src/rag_eval/
     edges.py         Conditional routing with retry-aware logic + web search routing
     builder.py       Graph assembly
   eval/
-    harness.py       Multi-model sweep with incremental persistence
-    judge.py         LLM-as-judge scoring (faithfulness, relevancy, precision)
+    harness.py       Multi-model sweep with incremental persistence + per-run logging
+    judge.py         LLM-as-judge scoring with raw response capture
     gpu_monitor.py   NVML + nvidia-smi fallback for unified memory
-    metrics.py       EvalResult dataclass
+    metrics.py       EvalResult dataclass (includes judge_model field)
+  logging_setup.py   Centralized logging: console + rotating file + per-run logs
   api/
     app.py           FastAPI application
     routes.py        REST endpoints
@@ -517,4 +587,10 @@ scripts/
   serve.py           CLI wrapper for dashboard
 data/
   questions_legal.txt  25 legal evaluation questions
+  logs/                Application logs (auto-created)
+    rag_eval.log       Rotating app log (10 MB × 5 backups)
+  results/
+    <run_id>.csv       Evaluation results
+    <run_id>.json      Evaluation results (with judge_model field)
+    <run_id>.log       Per-run detailed log (judge traces, node timings)
 ```

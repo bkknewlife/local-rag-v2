@@ -75,9 +75,13 @@ class SettingsPatch(BaseModel):
     searxng_base_url: str | None = None
 
 
+EMBEDDING_ONLY_FAMILIES = ("nomic-embed", "mxbai-embed", "all-minilm", "snowflake-arctic-embed",
+                           "bge-", "e5-", "gte-", "jina-embeddings")
+
 class StatusResponse(BaseModel):
     ollama_reachable: bool = False
     ollama_models: list[str] = Field(default_factory=list)
+    ollama_chat_models: list[str] = Field(default_factory=list)
     chroma_doc_count: int = 0
     chroma_collection: str = ""
     embedding_backend: str = ""
@@ -109,7 +113,13 @@ async def status():
         r.raise_for_status()
         data = r.json()
         resp.ollama_reachable = True
-        resp.ollama_models = [m["name"] for m in data.get("models", [])]
+        all_models = [m["name"] for m in data.get("models", [])]
+        resp.ollama_models = all_models
+        resp.ollama_chat_models = [
+            m for m in all_models
+            if not any(m.lower().startswith(prefix) or f"/{prefix}" in m.lower()
+                       for prefix in EMBEDDING_ONLY_FAMILIES)
+        ]
     except Exception:
         pass
 
@@ -191,6 +201,8 @@ async def ingest(req: IngestRequest, background: BackgroundTasks):
     ingest_id = uuid.uuid4().hex[:12]
     _progress_queues[ingest_id] = asyncio.Queue()
     callback = _make_progress_callback(ingest_id)
+    log.info("[API] POST /ingest dataset=%s max_rows=%s streaming=%s",
+             req.dataset, req.max_rows, req.streaming)
 
     def _run():
         global _ingest_running
@@ -200,6 +212,8 @@ async def ingest(req: IngestRequest, background: BackgroundTasks):
             from rag_eval.ingest.loader import load_hf_dataset
             from rag_eval.ingest.chunker import chunk_documents
             from rag_eval.ingest.indexer import index_chunks
+            from rag_eval.logging_setup import setup_logging
+            setup_logging()
 
             s = get_settings()
             if req.embedding_backend:
@@ -247,6 +261,16 @@ async def ingest_progress(ingest_id: str):
 
 # ── Evaluate ────────────────────────────────────────────────────────
 
+@router.post("/evaluate/reset")
+async def reset_eval_flag():
+    """Force-reset the eval_running flag if it's stuck after a crash or timeout."""
+    global _eval_running
+    was_running = _eval_running
+    _eval_running = False
+    log.info("[API] POST /evaluate/reset — was_running=%s, now reset to False", was_running)
+    return {"reset": True, "was_running": was_running}
+
+
 @router.post("/evaluate")
 async def evaluate(req: EvalRequest, background: BackgroundTasks):
     global _eval_running
@@ -256,6 +280,8 @@ async def evaluate(req: EvalRequest, background: BackgroundTasks):
     run_id = req.run_id or uuid.uuid4().hex[:12]
     _progress_queues[run_id] = asyncio.Queue()
     callback = _make_progress_callback(run_id)
+    log.info("[API] POST /evaluate run_id=%s models=%s judge=%s web_search=%s",
+             run_id, req.models, req.judge_model, req.web_search)
 
     def _run():
         global _eval_running
@@ -263,10 +289,19 @@ async def evaluate(req: EvalRequest, background: BackgroundTasks):
         try:
             from rag_eval.config import get_settings
             from rag_eval.eval.harness import run_evaluation
+            from rag_eval.logging_setup import setup_logging
+            setup_logging()
 
             s = get_settings()
             if req.models:
-                s.eval_models = req.models
+                s.eval_models = [
+                    m for m in req.models
+                    if not any(m.lower().startswith(p) or f"/{p}" in m.lower()
+                               for p in EMBEDDING_ONLY_FAMILIES)
+                ]
+                if not s.eval_models:
+                    log.warning("All requested models are embedding-only, nothing to evaluate")
+                    return
             if req.judge_model:
                 s.judge_model = req.judge_model
             if req.web_search:

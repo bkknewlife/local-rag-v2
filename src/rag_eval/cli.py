@@ -5,16 +5,9 @@ from __future__ import annotations
 import argparse
 import logging
 
-from rich.logging import RichHandler
+from rag_eval.logging_setup import setup_logging, attach_run_log, detach_run_log
 
-
-def _setup_logging(verbose: bool = False) -> None:
-    logging.basicConfig(
-        level=logging.DEBUG if verbose else logging.INFO,
-        format="%(message)s",
-        datefmt="[%X]",
-        handlers=[RichHandler(rich_tracebacks=True)],
-    )
+log = logging.getLogger(__name__)
 
 
 # ── Ingest ──────────────────────────────────────────────────────────
@@ -38,7 +31,7 @@ def cli_ingest() -> None:
                         help="Override embedding model name")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    _setup_logging(args.verbose)
+    setup_logging(args.verbose)
 
     from rag_eval.config import get_settings
     from rag_eval.ingest.loader import load_hf_dataset
@@ -52,6 +45,12 @@ def cli_ingest() -> None:
             settings.embedding_model = settings.embedding_fallback_model
     if args.embedding_model:
         settings.embedding_model = args.embedding_model
+    ingest_id = f"ingest-{args.dataset.replace('/', '_')}"
+    ingest_log = attach_run_log(ingest_id, directory=settings.results_dir)
+
+    log.info("INGEST START: dataset=%s split=%s max_rows=%s streaming=%s",
+             args.dataset, args.split, args.max_rows, args.streaming)
+
     docs = load_hf_dataset(
         args.dataset,
         split=args.split,
@@ -66,7 +65,10 @@ def cli_ingest() -> None:
     )
     chunks = chunk_documents(docs, settings=settings)
     n = index_chunks(chunks, settings=settings)
+    log.info("INGEST COMPLETE: %d chunks indexed", n)
     print(f"\nDone — indexed {n} chunks.")
+
+    detach_run_log(ingest_log)
 
 
 # ── Evaluate ────────────────────────────────────────────────────────
@@ -88,7 +90,7 @@ def cli_evaluate() -> None:
     parser.add_argument("--run-id", default=None)
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    _setup_logging(args.verbose)
+    setup_logging(args.verbose)
 
     from rag_eval.config import get_settings
     from rag_eval.eval.harness import run_evaluation
@@ -128,7 +130,7 @@ def cli_serve() -> None:
     parser.add_argument("--port", type=int, default=None)
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
-    _setup_logging(args.verbose)
+    setup_logging(args.verbose)
 
     import uvicorn
     from rag_eval.config import get_settings

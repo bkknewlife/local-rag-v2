@@ -70,6 +70,10 @@ def retrieve(state: GraphState) -> GraphState:
     docs = retriever.retrieve(state["question"])
     elapsed = time.perf_counter() - t0
 
+    scores = [f"{d.score:.3f}" for d in docs]
+    log.info("[retrieve] %d docs in %.3fs, scores=[%s], question=%r",
+             len(docs), elapsed, ", ".join(scores), state["question"][:80])
+
     latency = dict(state.get("latency") or {})
     latency["retrieve_s"] = round(elapsed, 4)
 
@@ -160,7 +164,10 @@ def grade_documents(state: GraphState) -> GraphState:
 
     if not graded:
         graded = state.get("documents", [])[:2]
+        log.info("[grade_documents] No docs graded relevant, keeping top 2 as fallback")
 
+    log.info("[grade_documents] %d/%d docs passed relevance filter",
+             len(graded), len(state.get("documents", [])))
     return {**state, "documents": graded}
 
 
@@ -184,9 +191,15 @@ def generate(state: GraphState) -> GraphState:
         data.get("eval_count", 0) / max(elapsed, 0.001), 1
     )
 
+    answer = data["message"]["content"]
+    log.info("[generate] model=%s, %.1fs, %d prompt_tok, %d compl_tok, %.1f tok/s, answer_len=%d",
+             model, elapsed, data.get("prompt_eval_count", 0),
+             data.get("eval_count", 0), latency["tokens_per_sec"], len(answer))
+    log.debug("[generate] answer=%r", answer[:300])
+
     return {
         **state,
-        "generation": data["message"]["content"],
+        "generation": answer,
         "latency": latency,
     }
 
@@ -207,12 +220,14 @@ def check_hallucination(state: GraphState) -> GraphState:
         data = _ollama_generate(model, prompt)
         verdict = data["message"]["content"].strip().lower()
         grounded = "yes" in verdict
-    except Exception:
+    except Exception as exc:
+        log.warning("[check_hallucination] model=%s failed: %s — assuming grounded", model, exc)
         grounded = True
 
     retries = state.get("retries", 0)
     if not grounded:
         retries += 1
+    log.info("[check_hallucination] model=%s grounded=%s retries=%d", model, grounded, retries)
 
     latency = dict(state.get("latency") or {})
     latency["hallucination_grounded"] = grounded
@@ -234,12 +249,14 @@ def check_usefulness(state: GraphState) -> GraphState:
         data = _ollama_generate(model, prompt)
         verdict = data["message"]["content"].strip().lower()
         useful = "yes" in verdict
-    except Exception:
+    except Exception as exc:
+        log.warning("[check_usefulness] model=%s failed: %s — assuming useful", model, exc)
         useful = True
 
     retries = state.get("retries", 0)
     if not useful:
         retries += 1
+    log.info("[check_usefulness] model=%s useful=%s retries=%d", model, useful, retries)
 
     latency = dict(state.get("latency") or {})
     latency["answer_useful"] = useful
@@ -268,7 +285,9 @@ def rewrite_query(state: GraphState) -> GraphState:
         data = _ollama_generate(model, prompt)
         new_q = data["message"]["content"].strip()
         if new_q:
+            log.info("[rewrite_query] model=%s retry=%d: %r -> %r",
+                     model, retries, original[:60], new_q[:60])
             return {**state, "question": new_q, "retries": retries}
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("[rewrite_query] model=%s failed: %s", model, exc)
     return {**state, "retries": retries}
